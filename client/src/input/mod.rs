@@ -18,6 +18,7 @@ impl InputState {
             KeyCode::KeyS | KeyCode::ArrowDown => self.movement |= movement::BACKWARD,
             KeyCode::KeyA | KeyCode::ArrowLeft => self.movement |= movement::LEFT,
             KeyCode::KeyD | KeyCode::ArrowRight => self.movement |= movement::RIGHT,
+            KeyCode::Space => self.movement |= movement::SHOOT,
             _ => {}
         }
     }
@@ -28,6 +29,7 @@ impl InputState {
             KeyCode::KeyS | KeyCode::ArrowDown => self.movement &= !movement::BACKWARD,
             KeyCode::KeyA | KeyCode::ArrowLeft => self.movement &= !movement::LEFT,
             KeyCode::KeyD | KeyCode::ArrowRight => self.movement &= !movement::RIGHT,
+            KeyCode::Space => self.movement &= !movement::SHOOT,
             _ => {}
         }
     }

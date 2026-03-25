@@ -1,3 +1,4 @@
+pub mod combat;
 pub mod physics;
 pub mod protocol;
 pub mod tick;

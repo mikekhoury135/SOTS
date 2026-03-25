@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 /// Server tick rate in Hz.
-pub const TICK_RATE: u32 = 64;
+pub const TICK_RATE: u32 = 128;
 
 /// Duration of a single tick.
 pub const TICK_DURATION: Duration = Duration::from_micros(1_000_000 / TICK_RATE as u64);

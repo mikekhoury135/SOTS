@@ -15,3 +15,5 @@ tracing-subscriber.workspace = true
 bincode.workspace = true
 serde.workspace   = true
 glam.workspace    = true
+spin_sleep.workspace = true
+crossbeam-channel.workspace = true

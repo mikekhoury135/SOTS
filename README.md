@@ -89,10 +89,13 @@ client.exe 192.168.1.10:7777      # connects to a remote server
 
 | Key | Action |
 |---|---|
-| `W` / `↑` | Move forward (north) |
-| `S` / `↓` | Move backward (south) |
+| `W` / `↑` | Move forward |
+| `S` / `↓` | Move backward |
 | `A` / `←` | Strafe left |
 | `D` / `→` | Strafe right |
+| `Space` | Shoot (hitscan) |
+| `F3` | Toggle debug overlay |
+| `F4` | Cycle simulated latency (0/50/100/200ms) |
 | `Alt+F4` / window ✕ | Quit |
 
 The camera is top-down and follows your player (cyan square). Other players appear as orange squares.
@@ -155,8 +158,8 @@ just clean          # cargo clean
 |---|---|---|
 | 0 | ✅ Done | Workspace skeleton, Docker, docs |
 | 1 | ✅ Done | UDP connect/disconnect, 64 Hz tick, flat map |
-| 2 | 🔲 Next | Client-side prediction, server reconciliation |
-| 3 | 🔲 | Hit detection, health, respawn |
+| 2 | ✅ Done | CSP, server reconciliation, walls, debug overlay |
+| 3 | 🔲 Next | 128 Hz tick, dedicated game loop, hit detection, health, respawn |
 | 4 | 🔲 | 3D rendering (first/third person camera) |
 | 5 | 🔲 | Weapons, game mode, scoreboard |
 | 6 | 🔲 | Auth, map format, production hardening |
