@@ -1,19 +1,22 @@
 [package]
-name = "client"
+name    = "client"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-shared = { path = "../shared" }
-tokio.workspace = true
-socket2.workspace = true
-bytes.workspace = true
-crossbeam-channel.workspace = true
-ahash.workspace = true
+shared            = { path = "../shared" }
+tokio.workspace   = true
 parking_lot.workspace = true
-anyhow.workspace = true
+anyhow.workspace  = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-serde.workspace = true
 bincode.workspace = true
-glam.workspace = true
+serde.workspace   = true
+glam.workspace    = true
+crossbeam-channel.workspace = true
+
+# Rendering
+winit.workspace   = true
+wgpu.workspace    = true
+pollster.workspace = true
+bytemuck.workspace = true

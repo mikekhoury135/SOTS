@@ -1,20 +1,17 @@
 [package]
-name = "server"
+name    = "server"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-shared = { path = "../shared" }
-tokio.workspace = true
-socket2.workspace = true
-bytes.workspace = true
-crossbeam-channel.workspace = true
-ahash.workspace = true
+shared            = { path = "../shared" }
+tokio.workspace   = true
+ahash.workspace   = true
 parking_lot.workspace = true
-spin_sleep.workspace = true
-anyhow.workspace = true
+hecs.workspace    = true
+anyhow.workspace  = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-serde.workspace = true
 bincode.workspace = true
-glam.workspace = true
+serde.workspace   = true
+glam.workspace    = true

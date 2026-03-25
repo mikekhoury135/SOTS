@@ -10,6 +10,54 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.2.0] — 2026-03-25
+
+### Added
+- **Server `game/` module** — full hecs ECS game state: `WorldPos`, `WorldYaw`, `PlayerTag`
+  components; `Session` struct tracking entity, pending input, last-active tick; `GameState`
+  driving `tick()`, `handle_client_packet()`, and `build_snapshots()`.
+- **Server `network/` module** — UDP recv/send loop on `tokio::select!`; `Connect` spawns
+  player entity and replies with `ConnectAck`; `Input` stores `InputFrame`; `Disconnect`
+  despawns entity; `Heartbeat` refreshes timestamp. Idle sessions pruned after 10 s.
+- **Server movement** — WASD `InputFrame` bits applied each tick: yaw rotation, forward/right
+  vectors from `sin/cos(yaw)`, `MOVE_SPEED = 5.0 / TICK_RATE`, position clamped to ±95 units.
+- **`shared/types.rs`** — `QuantizedPosition` OFFSET=1024.0 fix (negative world coords encode
+  correctly to u16); `movement` constants module (`FORWARD/BACKWARD/LEFT/RIGHT` bitfield).
+- **Client `input/` module** — `InputState` mapping W/↑ S/↓ A/← D/→ to movement bitfield.
+- **Client `state.rs`** — `SharedState` with parking_lot `Mutex<InputSnapshot>` and
+  `Mutex<GameView>`; `GameView` derives `Clone` for lock-free snapshot copy to renderer.
+- **Client `network/` module** — UDP client task: binds `0.0.0.0:0`, sends `Connect`,
+  waits up to 5 s for `ConnectAck`, then main loop: `tokio::select!` recv → update `GameView`;
+  tick → send `InputFrame` at 64 Hz.
+- **Client `renderer/` module** — full wgpu 29.x pipeline: vertex buffer (up to 8192 verts),
+  uniform buffer (view-projection matrix), WGSL shader. Draws 20×20 checkerboard floor tiles
+  (±100 world units, 10-unit tiles) and 2×2 player quads (cyan = local, orange = remote).
+- **Client `renderer/shader.wgsl`** — WGSL vertex/fragment shader with `mat4x4<f32>` uniform.
+- **Client `app.rs`** — winit 0.30.x `ApplicationHandler`: `resumed()` creates 1280×720 window
+  and initialises wgpu renderer via `pollster::block_on`; `about_to_wait()` drives continuous
+  rendering; `RedrawRequested` renders frame and calls `reconfigure()` when surface is lost/outdated.
+- **Client `main.rs`** — spawns network thread with its own tokio runtime; winit event loop on
+  main thread (required by Windows/macOS); server address from optional CLI argument.
+- **`README.md`** — full run instructions: server (local + Docker), client (Linux + Windows exe),
+  controls table (WASD + arrows), project layout tree, prerequisites table, roadmap.
+
+### Changed
+- `Cargo.toml` workspace deps: added `hecs`, `winit 0.30`, `wgpu 29`, `pollster 0.3`,
+  `bytemuck { derive }`, updated `bincode 2` to `features = ["serde"]`, `glam` serde feature.
+- `server/src/main.rs`: switched to `#[tokio::main]`, calls `network::run_server(config).await`.
+
+### Fixed
+- `QuantizedPosition` underflow for negative coordinates — added OFFSET=1024.0 to encode
+  the full [-1024, 1024) world range safely into u16.
+- wgpu 29.x API changes: `Instance::default()`, `request_adapter().await?` (now `Result`),
+  `request_device` 1-arg form, `PipelineLayoutDescriptor::immediate_size` (replaces
+  `push_constant_ranges`), `RenderPipelineDescriptor::multiview_mask` (replaces `multiview`),
+  `CurrentSurfaceTexture` enum variants (replaces `Result<SurfaceTexture, SurfaceError>`),
+  `RenderPassColorAttachment::depth_slice`, `RenderPassDescriptor::multiview_mask`,
+  `set_bind_group(n, Some(&bg), &[])`.
+
+---
+
 ## [0.1.1] — 2026-03-25
 
 ### Added
