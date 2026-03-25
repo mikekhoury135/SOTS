@@ -53,14 +53,18 @@ impl Wall {
 }
 
 /// Static walls placed on the map. Both server and client use this exact list.
+///
+/// All walls are offset from spawn (Vec3::ZERO) so players can move freely
+/// from the start and walk a short distance to reach and test wall collision.
 pub const WALLS: &[Wall] = &[
-    // Central L-shaped barrier
-    Wall::new(-15.0, -2.0, 5.0, 2.0), // horizontal arm
-    Wall::new(3.0, -15.0, 7.0, 2.0),  // vertical arm going south
-    // Top-left box
-    Wall::new(-40.0, -45.0, -30.0, -35.0),
-    // Bottom-right box
-    Wall::new(30.0, 35.0, 40.0, 45.0),
+    // South barrier — walk forward (W) ~12 units from spawn
+    Wall::new(-8.0, 12.0, 8.0, 16.0),
+    // East pillar — strafe right (D) ~15 units from spawn
+    Wall::new(15.0, -6.0, 21.0, 6.0),
+    // North-west box — further exploration
+    Wall::new(-40.0, -35.0, -28.0, -22.0),
+    // South-east wall — far corner
+    Wall::new(28.0, 30.0, 44.0, 34.0),
 ];
 
 // ── Movement ─────────────────────────────────────────────────────────────────
@@ -146,10 +150,10 @@ mod tests {
 
     #[test]
     fn movement_blocked_by_wall() {
-        // Place player right at the left edge of the central wall
-        let mut pos = Vec3::new(-16.0, 0.0, 0.0);
-        // Set yaw so forward = +X
-        let mut yaw: f32 = std::f32::consts::FRAC_PI_2;
+        // Place player just west of the east pillar (x_min=15, z: -6..6).
+        // Walk east (yaw = PI/2 → forward = +X) into the pillar.
+        let mut pos = Vec3::new(13.0, 0.0, 0.0);
+        let mut yaw: f32 = std::f32::consts::FRAC_PI_2; // forward = +X
 
         let frame = InputFrame {
             tick: 0,
@@ -160,16 +164,15 @@ mod tests {
             flags: crate::types::PlayerFlags::new(),
         };
 
-        // Apply many frames to push into the wall
+        // Apply many frames — player should be stopped by the east pillar (x_min=15)
         for _ in 0..200 {
             apply_input(&mut pos, &mut yaw, &frame);
         }
 
-        // Player should be stopped by the wall (x_min = -15.0, player half = 0.5)
-        // so player x should be <= -15.0 - 0.5 = -15.5, or close to it
+        // Stopped at x = 15.0 - PLAYER_HALF (0.5) = 14.5
         assert!(
-            pos.x < -14.5,
-            "Player should be blocked by wall, got x={}",
+            pos.x < 15.0,
+            "Player should be blocked by east pillar, got x={}",
             pos.x
         );
     }
