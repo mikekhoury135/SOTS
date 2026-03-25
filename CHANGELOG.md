@@ -10,6 +10,37 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.4.0] — 2026-03-25
+
+### Added
+- **128 Hz tick rate** — doubled from 64 Hz. `TICK_RATE` constant in `shared/tick.rs` drives
+  both server and client; `TICK_DURATION`, `MOVE_SPEED` auto-derive from it.
+- **Dedicated game loop thread** — server game loop now runs on a dedicated OS thread
+  (`std::thread`) isolated from tokio's async scheduler. Uses `spin_sleep` for
+  sub-millisecond tick accuracy (<100µs jitter vs ~1ms from tokio::time::interval).
+  IO (recv/send) stays on tokio; communication via bounded crossbeam channels.
+- **`shared/combat.rs`** — pure hitscan raycast: `ray_vs_aabb` for wall occlusion,
+  `ray_vs_circle` for player hit detection. Constants: `HITSCAN_RANGE` (100 units),
+  `HITSCAN_DAMAGE` (25 per hit), `MAX_HEALTH` (100), `RESPAWN_TICKS` (384 = 3s at 128Hz).
+- **Health system** — `Health(u8)` ECS component. Hitscan shots subtract 25 HP; at 0 HP
+  the player dies (ALIVE flag cleared, movement disabled).
+- **Respawn system** — `RespawnTimer(u16)` component counts down from `RESPAWN_TICKS`.
+  On reaching 0, player respawns at a cycled spawn point with full health.
+- **Shoot action** — `Space` key sets `movement::SHOOT` bit in `InputFrame`. Server
+  processes hitscan on the tick the bit is set. Rays are blocked by walls.
+- **Spawn points** — 4 spawn positions cycling for new connections and respawns.
+- 3 new unit tests in `shared::combat`: hitscan hit, wall-blocked, miss.
+
+### Changed
+- **Server architecture** — `server/network/mod.rs` rewritten: IO loop (tokio) sends/receives
+  via crossbeam channels to/from the game loop thread. Bounded channels (4096 cap) provide
+  backpressure and overload shedding.
+- **`server/Cargo.toml`** — added `spin_sleep`, `crossbeam-channel` dependencies.
+- **`shared/types.rs`** — added `movement::SHOOT` bit (1 << 4).
+- **Client input** — `Space` key mapped to SHOOT.
+
+---
+
 ## [0.3.0] — 2026-03-25
 
 ### Added

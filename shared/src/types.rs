@@ -78,6 +78,7 @@ pub mod movement {
     pub const BACKWARD: u8 = 1 << 1; // S
     pub const LEFT: u8 = 1 << 2; // A
     pub const RIGHT: u8 = 1 << 3; // D
+    pub const SHOOT: u8 = 1 << 4; // Space / Left Mouse
 }
 
 /// Input captured from the client each tick, sent to server.
