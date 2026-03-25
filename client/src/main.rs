@@ -1,3 +1,10 @@
+// Hide the console window in release builds on Windows.
+// In debug builds the console stays visible so tracing logs are readable.
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions)),
+    windows_subsystem = "windows"
+)]
+
 mod input;
 mod network;
 mod renderer;
