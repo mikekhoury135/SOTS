@@ -34,17 +34,22 @@ The server is the authority on all game state. The client sends inputs and rende
 
 ### 1 — Start the server
 
-**Option A: locally (no Docker)**
-```bash
+**Option A: locally (Windows, Linux, or macOS — no Docker)**
+```
 just server-run
-# or: cargo run -p server
+```
+or equivalently:
+```
+cargo run -p server
 ```
 
-**Option B: Docker**
-```bash
+**Option B: Docker (Linux host or Docker Desktop with WSL2)**
+```
 just server-docker
-# or (Docker v2): docker compose -f docker/docker-compose.yml up --build
-# or (Docker v1): docker-compose -f docker/docker-compose.yml up --build
+```
+or equivalently:
+```
+docker compose -f docker/docker-compose.yml up --build
 ```
 
 The server listens on **UDP 7777** by default.

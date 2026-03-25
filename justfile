@@ -2,6 +2,9 @@
 # Install: cargo install just
 # Usage:   just <recipe>   (run `just` with no args to list all recipes)
 
+# Shell configuration — use cmd.exe on Windows, sh everywhere else.
+set windows-shell := ["cmd.exe", "/c"]
+
 # Windows cross-compilation target.
 # GNU toolchain works for all phases up to and including Phase 2.
 # Re-evaluate for x86_64-pc-windows-msvc when wgpu/winit land in Phase 3
