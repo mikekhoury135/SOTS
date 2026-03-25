@@ -1,0 +1,17 @@
+services:
+  sots-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    # Host networking for lowest latency — bypasses Docker bridge NAT.
+    network_mode: "host"
+    # Kernel tuning for high-frequency UDP game server.
+    sysctls:
+      net.core.rmem_max: 134217728
+      net.core.wmem_max: 134217728
+      net.core.rmem_default: 8388608
+      net.core.wmem_default: 8388608
+      net.core.netdev_max_backlog: 50000
+    environment:
+      - RUST_LOG=info
+    restart: unless-stopped
