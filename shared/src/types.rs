@@ -66,7 +66,7 @@ impl Default for PlayerFlags {
 pub struct PlayerState {
     pub id: PlayerId,
     pub position: QuantizedPosition,
-    pub yaw: u16,   // radians mapped to [0, 65535]
+    pub yaw: u16, // radians mapped to [0, 65535]
     pub pitch: i16,
     pub health: u8,
     pub flags: PlayerFlags,
@@ -74,16 +74,19 @@ pub struct PlayerState {
 
 /// WASD movement bits packed into a single byte.
 pub mod movement {
-    pub const FORWARD: u8 = 1 << 0;  // W
+    pub const FORWARD: u8 = 1 << 0; // W
     pub const BACKWARD: u8 = 1 << 1; // S
-    pub const LEFT: u8 = 1 << 2;     // A
-    pub const RIGHT: u8 = 1 << 3;    // D
+    pub const LEFT: u8 = 1 << 2; // A
+    pub const RIGHT: u8 = 1 << 3; // D
 }
 
 /// Input captured from the client each tick, sent to server.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct InputFrame {
     pub tick: u16,
+    /// Monotonically increasing input sequence number.
+    /// The server echoes this back so the client knows which inputs have been processed.
+    pub sequence: u32,
     /// WASD bits — see `movement` constants above.
     pub movement: u8,
     pub yaw_delta: i16,

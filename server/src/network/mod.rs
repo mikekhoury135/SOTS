@@ -4,7 +4,7 @@ use tokio::net::UdpSocket;
 use tracing::{info, warn};
 
 use shared::{
-    protocol::{ClientPacket, ServerPacket, MAX_PACKET_SIZE},
+    protocol::{ClientPacket, MAX_PACKET_SIZE, ServerPacket},
     tick::TICK_DURATION,
 };
 
@@ -46,12 +46,7 @@ pub async fn run_server(config: ServerConfig) -> Result<()> {
     }
 }
 
-async fn handle_packet(
-    data: &[u8],
-    addr: SocketAddr,
-    state: &mut GameState,
-    socket: &UdpSocket,
-) {
+async fn handle_packet(data: &[u8], addr: SocketAddr, state: &mut GameState, socket: &UdpSocket) {
     match decode_client(data) {
         Ok(packet) => {
             let responses = state.handle_client_packet(packet, addr);
@@ -80,8 +75,7 @@ fn encode_server(packet: &ServerPacket) -> Result<Vec<u8>> {
 }
 
 fn decode_client(data: &[u8]) -> Result<ClientPacket> {
-    let (packet, _) =
-        bincode::serde::decode_from_slice(data, bincode::config::standard())
-            .map_err(|e| anyhow::anyhow!("decode: {e}"))?;
+    let (packet, _) = bincode::serde::decode_from_slice(data, bincode::config::standard())
+        .map_err(|e| anyhow::anyhow!("decode: {e}"))?;
     Ok(packet)
 }

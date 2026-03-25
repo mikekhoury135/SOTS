@@ -10,6 +10,49 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.0] — 2026-03-25
+
+### Added
+- **Client-side prediction (CSP)** — client immediately applies movement inputs locally
+  so the player feels instant response regardless of network latency.
+- **Server reconciliation** — on receiving a server snapshot, the client rewinds to the
+  server-confirmed position and replays all unacknowledged inputs. If prediction matched
+  the server exactly, no visible correction occurs.
+- **Input sequence numbers** — each `InputFrame` carries a monotonically increasing `u32`
+  sequence. The server echoes `last_processed_input` per client in `StateUpdate` packets
+  so the client can discard acknowledged inputs from its prediction buffer.
+- **`shared/physics.rs`** — pure movement and collision logic shared between server and
+  client. Single source of truth: `apply_input()` applies one tick of WASD movement with
+  wall collision and map-boundary clamping. Diagonal movement now normalised (no speed boost).
+- **Static wall obstacles** — 4 axis-aligned walls defined in `shared::physics::WALLS`:
+  central L-shaped barrier, top-left box, bottom-right box. Both server and client use the
+  same wall data for deterministic collision.
+- **Wall collision with wall-sliding** — X and Z axes tested independently so players slide
+  along walls instead of stopping dead.
+- **F3 debug overlay** — toggles a visual overlay showing:
+  - Red ghost square at server-confirmed position (shows prediction divergence)
+  - Color-coded RTT bar (green <30ms, yellow 30-100ms, red >100ms)
+  - Pending-inputs bar (blue, length = unacknowledged input count)
+  - Simulated-latency indicator (purple, visible when F4 latency > 0)
+- **F4 simulated latency** — cycles through 0 → 50 → 100 → 200 → 0 ms of artificial
+  outbound packet delay. Combined with F3 overlay, makes CSP/reconciliation directly
+  observable during testing.
+- 3 new unit tests in `shared::physics`: wall overlap, movement blocked by wall, diagonal
+  normalisation.
+
+### Changed
+- **Server `game/mod.rs`** — now calls `shared::physics::apply_input()` instead of inline
+  movement logic. Tracks `last_processed_seq` per session. `build_snapshots()` returns
+  per-client packets with `last_processed_input`.
+- **`ServerPacket::StateUpdate`** — added `last_processed_input: u32` field.
+- **`InputFrame`** — added `sequence: u32` field.
+- **Client renderer** — camera now follows predicted position; draws walls as brown quads;
+  vertex buffer increased to 16384 for additional geometry.
+- **Client network** — complete rewrite with prediction buffer (`VecDeque<InputFrame>`),
+  reconciliation loop, delayed-send queue for simulated latency, RTT tracking.
+
+---
+
 ## [0.2.0] — 2026-03-25
 
 ### Added

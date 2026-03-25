@@ -5,9 +5,10 @@ use std::net::SocketAddr;
 use tracing::info;
 
 use shared::{
+    physics,
     protocol::{ClientPacket, ServerPacket},
-    tick::{TickNum, TICK_RATE},
-    types::{movement, InputFrame, PlayerId, PlayerFlags, PlayerState, QuantizedPosition},
+    tick::{TICK_RATE, TickNum},
+    types::{InputFrame, PlayerFlags, PlayerId, PlayerState, QuantizedPosition},
 };
 
 // ── ECS components ────────────────────────────────────────────────────────────
@@ -22,13 +23,13 @@ struct Session {
     id: PlayerId,
     entity: Entity,
     pending_input: Option<InputFrame>,
+    /// The sequence number of the last InputFrame we processed for this client.
+    last_processed_seq: u32,
     last_active_tick: u16,
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const MOVE_SPEED: f32 = 5.0 / TICK_RATE as f32; // units per tick
-const MAP_HALF: f32 = 95.0; // clamp boundary (map tiles go to ±100)
 const TIMEOUT_TICKS: u16 = TICK_RATE as u16 * 10; // 10 s
 
 // ── GameState ─────────────────────────────────────────────────────────────────
@@ -69,11 +70,9 @@ impl GameState {
                 let id = PlayerId(self.next_id);
                 self.next_id += 1;
 
-                let entity = self.world.spawn((
-                    WorldPos(Vec3::ZERO),
-                    WorldYaw(0.0),
-                    PlayerTag(id),
-                ));
+                let entity = self
+                    .world
+                    .spawn((WorldPos(Vec3::ZERO), WorldYaw(0.0), PlayerTag(id)));
 
                 self.sessions.insert(
                     addr,
@@ -81,6 +80,7 @@ impl GameState {
                         id,
                         entity,
                         pending_input: None,
+                        last_processed_seq: 0,
                         last_active_tick: self.current_tick.0,
                     },
                 );
@@ -125,20 +125,26 @@ impl GameState {
             .filter_map(|s| s.pending_input.map(|f| (s.entity, f)))
             .collect();
 
-        for (entity, frame) in inputs {
-            if let Ok((pos, yaw)) =
-                self.world.query_one_mut::<(&mut WorldPos, &mut WorldYaw)>(entity)
+        for (entity, frame) in &inputs {
+            if let Ok((pos, yaw)) = self
+                .world
+                .query_one_mut::<(&mut WorldPos, &mut WorldYaw)>(*entity)
             {
-                apply_input(&mut pos.0, &mut yaw.0, &frame);
-                pos.0.x = pos.0.x.clamp(-MAP_HALF, MAP_HALF);
-                pos.0.z = pos.0.z.clamp(-MAP_HALF, MAP_HALF);
+                physics::apply_input(&mut pos.0, &mut yaw.0, frame);
+            }
+        }
+
+        // Update last_processed_seq for each session that had input
+        for session in self.sessions.values_mut() {
+            if let Some(frame) = session.pending_input.take() {
+                session.last_processed_seq = frame.sequence;
             }
         }
 
         self.current_tick = self.current_tick.next();
     }
 
-    /// Build a StateUpdate snapshot for every connected client.
+    /// Build a per-client StateUpdate snapshot (each client gets their own last_processed_input).
     pub fn build_snapshots(&self) -> Vec<(SocketAddr, ServerPacket)> {
         let players: Vec<PlayerState> = self
             .world
@@ -147,23 +153,24 @@ impl GameState {
             .map(|(_, (pos, yaw, tag))| PlayerState {
                 id: tag.0,
                 position: QuantizedPosition::from_vec3(pos.0),
-                yaw: (yaw.0.rem_euclid(std::f32::consts::TAU)
-                    / std::f32::consts::TAU
-                    * 65536.0) as u16,
+                yaw: (yaw.0.rem_euclid(std::f32::consts::TAU) / std::f32::consts::TAU * 65536.0)
+                    as u16,
                 pitch: 0,
                 health: 100,
                 flags: PlayerFlags::new(),
             })
             .collect();
 
-        let packet = ServerPacket::StateUpdate {
-            server_tick: self.current_tick.0,
-            players,
-        };
-
         self.sessions
-            .keys()
-            .map(|addr| (*addr, packet.clone()))
+            .iter()
+            .map(|(addr, session)| {
+                let packet = ServerPacket::StateUpdate {
+                    server_tick: self.current_tick.0,
+                    last_processed_input: session.last_processed_seq,
+                    players: players.clone(),
+                };
+                (*addr, packet)
+            })
             .collect()
     }
 
@@ -189,31 +196,5 @@ impl GameState {
             let _ = self.world.despawn(session.entity);
             info!("Player {:?} disconnected", session.id);
         }
-    }
-}
-
-// ── Movement ──────────────────────────────────────────────────────────────────
-
-fn apply_input(pos: &mut Vec3, yaw: &mut f32, frame: &InputFrame) {
-    // Yaw rotation from mouse delta
-    const YAW_SENSITIVITY: f32 = 0.003;
-    *yaw += frame.yaw_delta as f32 * YAW_SENSITIVITY;
-
-    let (sin_y, cos_y) = yaw.sin_cos();
-    let forward = Vec3::new(sin_y, 0.0, cos_y);
-    let right = Vec3::new(cos_y, 0.0, -sin_y);
-
-    let m = frame.movement;
-    if m & movement::FORWARD != 0 {
-        *pos += forward * MOVE_SPEED;
-    }
-    if m & movement::BACKWARD != 0 {
-        *pos -= forward * MOVE_SPEED;
-    }
-    if m & movement::LEFT != 0 {
-        *pos -= right * MOVE_SPEED;
-    }
-    if m & movement::RIGHT != 0 {
-        *pos += right * MOVE_SPEED;
     }
 }
