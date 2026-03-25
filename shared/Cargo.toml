@@ -1,11 +1,11 @@
 [package]
-name = "shared"
+name    = "shared"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-serde.workspace = true
+serde.workspace   = true
 bincode.workspace = true
-glam.workspace = true
+glam.workspace    = true
 thiserror.workspace = true
-bytes.workspace = true
+bytes.workspace   = true

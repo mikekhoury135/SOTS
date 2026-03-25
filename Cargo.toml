@@ -9,23 +9,32 @@ license = "MIT"
 
 [workspace.dependencies]
 # Shared
-serde = { version = "1", features = ["derive"] }
-bincode = "2"
-glam = { version = "0.32", features = ["serde"] }
-thiserror = "2"
-anyhow = "1"
+serde      = { version = "1",    features = ["derive"] }
+bincode    = { version = "2",    features = ["serde"] }
+glam       = { version = "0.32", features = ["serde"] }
+thiserror  = "2"
+anyhow     = "1"
 
 # Networking & IO
-tokio = { version = "1.47", features = ["full"] }
-socket2 = "0.5"
-bytes = "1"
+tokio             = { version = "1.47", features = ["full"] }
+socket2           = "0.5"
+bytes             = "1"
 crossbeam-channel = "0.5"
 
 # Performance
-ahash = "0.8"
+ahash       = "0.8"
 parking_lot = "0.12"
-spin_sleep = "0.3"
+spin_sleep  = "0.3"
+
+# Game
+hecs = "0.10"
+
+# Rendering (client only)
+winit     = "0.30"
+wgpu      = "29"
+pollster  = "0.3"
+bytemuck  = { version = "1", features = ["derive"] }
 
 # Observability
-tracing = "0.1"
+tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
