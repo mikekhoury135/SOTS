@@ -10,6 +10,27 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.1.1] — 2026-03-25
+
+### Added
+- `justfile` — task runner with recipes for build, test, lint, fmt, server (local + Docker),
+  and Windows cross-compilation. Run `just` with no args to list all recipes.
+- Windows cross-compilation via `cross`: `just client-windows` produces
+  `target/x86_64-pc-windows-gnu/release/client.exe` from any OS using Docker.
+  Debug variant (`just client-windows-debug`) retains console window for log visibility.
+- `#![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]`
+  in `client/src/main.rs` — release builds run without a console window on Windows;
+  debug builds keep the console so `tracing` output is visible during development.
+
+### Changed
+- `CLAUDE.md`: updated Prerequisites section (added `just`, `cross`, `cargo-watch`),
+  replaced raw cargo commands with `just` equivalents, added Windows Cross-Compilation
+  section with target rationale and Phase 3 MSVC migration note.
+- `CLAUDE.md`: Decisions Log updated with `cross`, GNU target, `just`, and
+  `windows_subsystem` decisions.
+
+---
+
 ## [0.1.0] — 2026-03-25
 
 ### Added

@@ -222,38 +222,56 @@ UDP performance. Port 7777/UDP is bound directly on the host interface.
 
 ### Prerequisites
 - Rust stable toolchain (`rustup`)
-- Docker Desktop (server container)
-- `cargo-watch` (optional, hot reload)
+- Docker Desktop (server container + Windows cross-compilation)
+- `just` — task runner: `cargo install just`
+- `cross` — Windows cross-compilation: `cargo install cross --locked`
+- `cargo-watch` (optional, hot reload): `cargo install cargo-watch`
 
-### Useful Commands
+### Useful Commands (via `just`)
+
+Run `just` with no arguments to list all recipes.
+
 ```bash
-# Full workspace build
-cargo build --workspace
+just build              # cargo build --workspace
+just build-release      # cargo build --workspace --release
+just test               # cargo test --workspace
+just lint               # clippy -D warnings
+just fmt                # cargo fmt --all
+just check              # fmt-check + lint + test (full pre-PR gate)
 
-# Run tests
-cargo test --workspace
+just client-windows       # cross-compile → target/x86_64-pc-windows-gnu/release/client.exe
+just client-windows-debug # debug .exe with console logging visible
 
-# Lint (strict)
-cargo clippy --workspace -- -D warnings
+just server-run           # run server locally (no Docker)
+just server-docker        # docker-compose up --build
+just server-docker-down   # docker-compose down
 
-# Format
-cargo fmt --all
-
-# Check formatting without changing files
-cargo fmt --all -- --check
-
-# Run server locally (no Docker)
-cargo run -p server
-
-# Run server in Docker
-docker-compose -f docker/docker-compose.yml up --build
-
-# Run client (Windows)
-cargo run -p client
-
-# Watch for changes (requires cargo-watch)
-cargo watch -x "run -p server"
+just watch              # cargo-watch on server
+just clean              # cargo clean
 ```
+
+### Windows Cross-Compilation
+
+The client is built for Windows using [`cross`](https://github.com/cross-rs/cross),
+which reuses your existing Docker installation to provide the correct toolchain.
+No manual MinGW or MSVC setup required.
+
+```bash
+# One-time setup
+cargo install cross --locked
+
+# Build Windows .exe from any OS
+just client-windows
+# → target/x86_64-pc-windows-gnu/release/client.exe
+```
+
+**Target note:** `x86_64-pc-windows-gnu` (MinGW) is used through Phase 2.
+When `wgpu` + `winit` are added in Phase 3, evaluate switching to
+`x86_64-pc-windows-msvc` via [`cargo-xwin`](https://github.com/rust-cross/cargo-xwin)
+for better DirectX/Windows API compatibility.
+
+**Release builds** suppress the console window (`windows_subsystem = "windows"`).
+**Debug builds** keep the console visible so `tracing` logs are readable during development.
 
 ---
 
@@ -272,6 +290,10 @@ cargo watch -x "run -p server"
 | 2026-03-25 | Docker network_mode: host | Eliminates NAT overhead; direct NIC access for UDP |
 | 2026-03-25 | Game port UDP 7777 | Common game server port |
 | 2026-03-25 | Tick rate 64 Hz (ceiling 128 Hz) | Industry standard; bump after profiling |
+| 2026-03-25 | `cross` for Windows cross-compilation | Reuses Docker; no manual MinGW/MSVC toolchain setup |
+| 2026-03-25 | `x86_64-pc-windows-gnu` target (Phase 0–2) | Easier cross-compile; re-evaluate MSVC at Phase 3 (wgpu) |
+| 2026-03-25 | `just` as task runner | Replaces ad-hoc cargo commands; single source of truth for dev workflows |
+| 2026-03-25 | `windows_subsystem = "windows"` in release | Hides console on Windows; debug builds retain console for logs |
 
 ---
 
