@@ -27,17 +27,23 @@ build:
 build-release:
     cargo build --workspace --release
 
-# Cross-compile the client to a Windows .exe (requires: cargo install cross)
+# Run the client locally (any platform)
+client-run:
+    cargo run -p client
+
+# Cross-compile the client to a Windows .exe (Linux/macOS only — requires: cargo install cross)
 # Output: target/x86_64-pc-windows-gnu/release/client.exe
+[unix]
 client-windows:
     cross build --target {{windows_target}} --release -p client
-    @echo ""
+    @echo
     @echo "Windows executable: target/{{windows_target}}/release/client.exe"
 
 # Cross-compile the client to a Windows .exe (debug, with console logging)
+[unix]
 client-windows-debug:
     cross build --target {{windows_target}} -p client
-    @echo ""
+    @echo
     @echo "Windows executable (debug): target/{{windows_target}}/debug/client.exe"
 
 # ── Quality gates ─────────────────────────────────────────────────────────────
@@ -73,15 +79,15 @@ server-run-release:
 
 # Build and run the server in Docker
 server-docker:
-    docker-compose -f docker/docker-compose.yml up --build
+    docker compose -f docker/docker-compose.yml up --build
 
 # Build the Docker image without running
 server-docker-build:
-    docker-compose -f docker/docker-compose.yml build
+    docker compose -f docker/docker-compose.yml build
 
 # Stop and remove the Docker container
 server-docker-down:
-    docker-compose -f docker/docker-compose.yml down
+    docker compose -f docker/docker-compose.yml down
 
 # ── Convenience ───────────────────────────────────────────────────────────────
 

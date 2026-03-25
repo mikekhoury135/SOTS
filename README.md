@@ -43,11 +43,11 @@ or equivalently:
 cargo run -p server
 ```
 
-**Option B: Docker (Linux host or Docker Desktop with WSL2)**
+**Option B: Docker (Linux host or Docker Desktop + WSL2)**
 ```
 just server-docker
 ```
-or equivalently:
+or equivalently (Docker v2):
 ```
 docker compose -f docker/docker-compose.yml up --build
 ```
@@ -58,25 +58,26 @@ The server listens on **UDP 7777** by default.
 
 ### 2 — Run the client
 
-**On Linux / macOS (development):**
-```bash
+**On any platform (Windows, Linux, macOS):**
+```
+just client-run
+```
+or equivalently:
+```
 cargo run -p client                       # connects to 127.0.0.1:7777
 cargo run -p client -- 192.168.1.10:7777  # connects to a remote server
 ```
 
-**On Windows — build and run the native .exe:**
-
-From the repo root, cross-compile (requires `cross` + Docker):
-```bash
+**Cross-compile a Windows `.exe` for distribution (Linux/macOS only — requires `cross` + Docker):**
+```
 just client-windows
 # → target/x86_64-pc-windows-gnu/release/client.exe
 
-# Debug build (console window visible for log output)
 just client-windows-debug
-# → target/x86_64-pc-windows-gnu/debug/client.exe
+# → target/x86_64-pc-windows-gnu/debug/client.exe  (console visible for logs)
 ```
 
-Copy the `.exe` to your Windows machine and run it:
+Copy the `.exe` to any Windows machine and run it:
 ```
 client.exe                        # connects to 127.0.0.1:7777
 client.exe 192.168.1.10:7777      # connects to a remote server
