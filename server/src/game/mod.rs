@@ -237,16 +237,18 @@ impl GameState {
                     .nth(target_idx)
                     .map(|(_, (_, e))| *e);
 
-                if let Some(entity) = hit_entity
-                    && let Ok((health, timer)) = self
+                #[allow(clippy::collapsible_if)]
+                if let Some(entity) = hit_entity {
+                    if let Ok((health, timer)) = self
                         .world
                         .query_one_mut::<(&mut Health, &mut RespawnTimer)>(entity)
-                {
-                    health.0 = health.0.saturating_sub(HITSCAN_DAMAGE);
-                    if health.0 == 0 {
-                        timer.0 = RESPAWN_TICKS;
-                        if let Ok(tag) = self.world.query_one_mut::<&PlayerTag>(entity) {
-                            info!("Player {:?} was killed", tag.0);
+                    {
+                        health.0 = health.0.saturating_sub(HITSCAN_DAMAGE);
+                        if health.0 == 0 {
+                            timer.0 = RESPAWN_TICKS;
+                            if let Ok(tag) = self.world.query_one_mut::<&PlayerTag>(entity) {
+                                info!("Player {:?} was killed", tag.0);
+                            }
                         }
                     }
                 }
