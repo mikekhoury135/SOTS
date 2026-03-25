@@ -30,6 +30,8 @@ The server is the authority on all game state. The client sends inputs and rende
 
 ## Quick Start
 
+> All commands below must be run from the **repo root** (`SOTS/`).
+
 ### 1 — Start the server
 
 **Option A: locally (no Docker)**
@@ -41,7 +43,8 @@ just server-run
 **Option B: Docker**
 ```bash
 just server-docker
-# or: docker-compose -f docker/docker-compose.yml up --build
+# or (Docker v2): docker compose -f docker/docker-compose.yml up --build
+# or (Docker v1): docker-compose -f docker/docker-compose.yml up --build
 ```
 
 The server listens on **UDP 7777** by default.
@@ -52,14 +55,14 @@ The server listens on **UDP 7777** by default.
 
 **On Linux / macOS (development):**
 ```bash
-cargo run -p client
-# Connect to a remote server:
-cargo run -p client -- 192.168.1.10:7777
+cargo run -p client                       # connects to 127.0.0.1:7777
+cargo run -p client -- 192.168.1.10:7777  # connects to a remote server
 ```
 
 **On Windows — build and run the native .exe:**
+
+From the repo root, cross-compile (requires `cross` + Docker):
 ```bash
-# Cross-compile from any OS (requires cross + Docker)
 just client-windows
 # → target/x86_64-pc-windows-gnu/release/client.exe
 
@@ -91,6 +94,8 @@ The camera is top-down and follows your player (cyan square). Other players appe
 ---
 
 ## Development Commands
+
+Run from the **repo root**:
 
 ```bash
 just build          # build all crates
