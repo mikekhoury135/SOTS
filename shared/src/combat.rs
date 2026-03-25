@@ -44,7 +44,6 @@ pub fn hitscan(
     let mut hit_target: Option<usize> = None;
 
     // Check wall intersections to limit the ray
-    #[allow(clippy::collapsible_if)]
     for wall in WALLS {
         if let Some(d) = ray_vs_aabb(
             origin.x,
@@ -55,16 +54,15 @@ pub fn hitscan(
             wall.z_min,
             wall.x_max,
             wall.z_max,
-        ) {
-            if d > 0.0 && d < closest_dist {
-                closest_dist = d;
-                hit_target = None;
-            }
+        ) && d > 0.0
+            && d < closest_dist
+        {
+            closest_dist = d;
+            hit_target = None;
         }
     }
 
     // Check player intersections (simple circle test, radius = PLAYER_HALF)
-    #[allow(clippy::collapsible_if)]
     for &(pos, idx) in targets {
         if let Some(d) = ray_vs_circle(
             origin.x,
@@ -74,11 +72,11 @@ pub fn hitscan(
             pos.x,
             pos.z,
             PLAYER_HALF,
-        ) {
-            if d > 0.0 && d < closest_dist {
-                closest_dist = d;
-                hit_target = Some(idx);
-            }
+        ) && d > 0.0
+            && d < closest_dist
+        {
+            closest_dist = d;
+            hit_target = Some(idx);
         }
     }
 

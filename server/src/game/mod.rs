@@ -173,16 +173,14 @@ impl GameState {
             .filter_map(|s| s.pending_input.map(|f| (s.entity, f)))
             .collect();
 
-        #[allow(clippy::collapsible_if)]
         for (entity, frame) in &inputs {
             // Only move if alive
             if let Ok((_, health, timer)) = self
                 .world
                 .query_one_mut::<(&WorldPos, &Health, &RespawnTimer)>(*entity)
+                && (health.0 == 0 || timer.0 > 0)
             {
-                if health.0 == 0 || timer.0 > 0 {
-                    continue;
-                }
+                continue;
             }
 
             if let Ok((pos, yaw)) = self
