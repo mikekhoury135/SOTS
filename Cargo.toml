@@ -1,0 +1,31 @@
+[workspace]
+members = ["server", "client", "shared"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+# Shared
+serde = { version = "1", features = ["derive"] }
+bincode = "2"
+glam = { version = "0.32", features = ["serde"] }
+thiserror = "2"
+anyhow = "1"
+
+# Networking & IO
+tokio = { version = "1.47", features = ["full"] }
+socket2 = "0.5"
+bytes = "1"
+crossbeam-channel = "0.5"
+
+# Performance
+ahash = "0.8"
+parking_lot = "0.12"
+spin_sleep = "0.3"
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
