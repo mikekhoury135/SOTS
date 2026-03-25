@@ -15,7 +15,11 @@ async fn main() -> Result<()> {
         .init();
 
     let config = config::ServerConfig::default();
-    info!(port = config.port, tick_rate = config.tick_rate, "SOTS server starting");
+    info!(
+        port = config.port,
+        tick_rate = config.tick_rate,
+        "SOTS server starting"
+    );
 
     network::run_server(config).await
 }
