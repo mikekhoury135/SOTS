@@ -37,6 +37,9 @@ pub enum ServerPacket {
     /// Delta snapshot: only players whose state changed since client's last ACKed tick.
     StateUpdate {
         server_tick: u16,
+        /// The sequence number of the last InputFrame the server processed for this client.
+        /// The client uses this to discard acknowledged inputs from its prediction buffer.
+        last_processed_input: u32,
         players: Vec<PlayerState>,
     },
     /// Periodic keepalive / latency probe.

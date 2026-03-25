@@ -1,15 +1,22 @@
+use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::Instant;
 
+use glam::Vec3;
 use tokio::net::UdpSocket;
 use tracing::{info, warn};
 
 use shared::{
-    protocol::{ClientPacket, ServerPacket, MAX_PACKET_SIZE},
+    physics,
+    protocol::{ClientPacket, MAX_PACKET_SIZE, ServerPacket},
     tick::TICK_DURATION,
     types::{InputFrame, PlayerFlags},
 };
 
 use crate::state::SharedState;
+
+/// Maximum number of unacknowledged inputs to keep for reconciliation.
+const MAX_PENDING_INPUTS: usize = 128;
 
 pub async fn run_client(server_addr: String, shared: Arc<SharedState>) {
     if let Err(e) = connect_and_run(server_addr, shared).await {
@@ -41,22 +48,99 @@ async fn connect_and_run(server_addr: String, shared: Arc<SharedState>) -> anyho
     .await
     .map_err(|_| anyhow::anyhow!("ConnectAck timed out — is the server running?"))??;
 
-    shared.game.lock().player_id = Some(player_id);
+    {
+        let mut game = shared.game.lock();
+        game.player_id = Some(player_id);
+    }
     info!("Connected as {player_id:?}");
 
-    // ── Main loop: send inputs at TICK_RATE, receive state updates ───────────
+    // ── Prediction state ─────────────────────────────────────────────────────
+    let mut predicted_pos = Vec3::ZERO;
+    let mut predicted_yaw: f32 = 0.0;
+    let mut input_sequence: u32 = 1;
+    let mut pending_inputs: VecDeque<InputFrame> = VecDeque::with_capacity(MAX_PENDING_INPUTS);
+
+    // ── RTT tracking ─────────────────────────────────────────────────────────
+    let mut last_input_send_time = Instant::now();
+    let mut rtt_ms: f32 = 0.0;
+
+    // ── Delayed send queue for simulated latency ─────────────────────────────
+    let mut delayed_queue: VecDeque<(Instant, Vec<u8>)> = VecDeque::new();
+
+    // ── Main loop ────────────────────────────────────────────────────────────
     let mut interval = tokio::time::interval(TICK_DURATION);
     let mut tick: u16 = 0;
 
     loop {
+        // Flush any delayed packets whose time has come
+        while let Some((send_at, _)) = delayed_queue.front() {
+            if Instant::now() >= *send_at {
+                let (_, bytes) = delayed_queue.pop_front().expect("checked front");
+                if let Err(e) = socket.send(&bytes).await {
+                    warn!("send error: {e}");
+                }
+            } else {
+                break;
+            }
+        }
+
         tokio::select! {
             biased;
 
             // Drain any incoming packets first
             Ok(len) = socket.recv(&mut buf) => {
                 match decode(&buf[..len]) {
-                    Ok(ServerPacket::StateUpdate { players, .. }) => {
-                        shared.game.lock().players = players;
+                    Ok(ServerPacket::StateUpdate { server_tick, last_processed_input, players }) => {
+                        let recv_time = Instant::now();
+
+                        // ── RTT estimate (simple: time since we sent the acked input) ──
+                        // This is a rough estimate; good enough for the debug overlay.
+                        let elapsed = recv_time.duration_since(last_input_send_time);
+                        rtt_ms = rtt_ms * 0.9 + elapsed.as_secs_f32() * 1000.0 * 0.1;
+
+                        // ── Find server-authoritative position for local player ──
+                        let server_pos = players
+                            .iter()
+                            .find(|p| p.id == player_id)
+                            .map(|p| p.position.to_vec3())
+                            .unwrap_or(predicted_pos);
+
+                        let server_yaw = players
+                            .iter()
+                            .find(|p| p.id == player_id)
+                            .map(|p| {
+                                p.yaw as f32 / 65536.0 * std::f32::consts::TAU
+                            })
+                            .unwrap_or(predicted_yaw);
+
+                        // ── Discard acknowledged inputs ──
+                        while let Some(front) = pending_inputs.front() {
+                            if front.sequence <= last_processed_input {
+                                pending_inputs.pop_front();
+                            } else {
+                                break;
+                            }
+                        }
+
+                        // ── Reconciliation: rewind to server state, replay unacked inputs ──
+                        predicted_pos = server_pos;
+                        predicted_yaw = server_yaw;
+
+                        for frame in &pending_inputs {
+                            physics::apply_input(&mut predicted_pos, &mut predicted_yaw, frame);
+                        }
+
+                        // ── Update game view for the renderer ──
+                        {
+                            let mut game = shared.game.lock();
+                            game.players = players;
+                            game.predicted_pos = predicted_pos;
+                            game.server_pos = server_pos;
+                            game.rtt_ms = rtt_ms;
+                            game.server_tick = server_tick;
+                            game.client_tick = tick;
+                            game.pending_inputs = pending_inputs.len();
+                        }
                     }
                     Ok(ServerPacket::Heartbeat { .. }) => {}
                     Ok(ServerPacket::Shutdown) => {
@@ -72,15 +156,46 @@ async fn connect_and_run(server_addr: String, shared: Arc<SharedState>) -> anyho
                 let movement = shared.input.lock().movement;
                 let frame = InputFrame {
                     tick,
+                    sequence: input_sequence,
                     movement,
                     yaw_delta: 0,
                     pitch_delta: 0,
                     flags: PlayerFlags::new(),
                 };
-                let bytes = encode(&ClientPacket::Input { frames: vec![frame] })?;
-                if let Err(e) = socket.send(&bytes).await {
-                    warn!("send error: {e}");
+
+                // ── Client-side prediction: apply input immediately ──
+                physics::apply_input(&mut predicted_pos, &mut predicted_yaw, &frame);
+
+                // ── Store in pending buffer for reconciliation ──
+                if pending_inputs.len() >= MAX_PENDING_INPUTS {
+                    pending_inputs.pop_front();
                 }
+                pending_inputs.push_back(frame);
+
+                // ── Update predicted position in game view ──
+                {
+                    let mut game = shared.game.lock();
+                    game.predicted_pos = predicted_pos;
+                    game.client_tick = tick;
+                    game.pending_inputs = pending_inputs.len();
+                }
+
+                // ── Send to server (possibly delayed) ──
+                let bytes = encode(&ClientPacket::Input { frames: vec![frame] })?;
+                let sim_latency_ms = shared.debug.lock().simulated_latency_ms;
+
+                if sim_latency_ms == 0 {
+                    if let Err(e) = socket.send(&bytes).await {
+                        warn!("send error: {e}");
+                    }
+                } else {
+                    let send_at = Instant::now()
+                        + std::time::Duration::from_millis(sim_latency_ms as u64);
+                    delayed_queue.push_back((send_at, bytes));
+                }
+
+                last_input_send_time = Instant::now();
+                input_sequence += 1;
                 tick = tick.wrapping_add(1);
             }
         }
@@ -90,7 +205,10 @@ async fn connect_and_run(server_addr: String, shared: Arc<SharedState>) -> anyho
 }
 
 fn encode(packet: &ClientPacket) -> anyhow::Result<Vec<u8>> {
-    Ok(bincode::serde::encode_to_vec(packet, bincode::config::standard())?)
+    Ok(bincode::serde::encode_to_vec(
+        packet,
+        bincode::config::standard(),
+    )?)
 }
 
 fn decode(data: &[u8]) -> anyhow::Result<ServerPacket> {

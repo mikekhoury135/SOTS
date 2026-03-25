@@ -6,7 +6,8 @@ use glam::{Mat4, Vec3};
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
-use crate::state::GameView;
+use crate::state::{DebugSettings, GameView};
+use shared::physics;
 
 // ── Vertex layout ─────────────────────────────────────────────────────────────
 
@@ -26,7 +27,7 @@ impl Vertex {
     }
 }
 
-const MAX_VERTICES: usize = 8192;
+const MAX_VERTICES: usize = 16384; // increased for walls + debug
 const VERTEX_SIZE: usize = std::mem::size_of::<Vertex>();
 
 const MAP_HALF: f32 = 100.0;
@@ -35,6 +36,8 @@ const TILES: i32 = (MAP_HALF * 2.0 / TILE_SIZE) as i32; // 20×20
 
 const CAM_HEIGHT: f32 = 50.0;
 const VIEW_HALF: f32 = 20.0; // world-units from screen center to edge
+
+const WALL_HEIGHT: f32 = 0.02; // slightly above floor so walls are visible
 
 // ── Renderer ─────────────────────────────────────────────────────────────────
 
@@ -54,11 +57,9 @@ impl Renderer {
     pub async fn new(window: Arc<Window>) -> Result<Self> {
         let size = window.inner_size();
 
-        // Instance::default() uses InstanceDescriptor::new_without_display_handle()
         let instance = wgpu::Instance::default();
         let surface = instance.create_surface(window)?;
 
-        // In wgpu 29, request_adapter returns Result<Adapter, RequestAdapterError>
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -67,7 +68,6 @@ impl Renderer {
             })
             .await?;
 
-        // In wgpu 29, request_device takes 1 argument (no trace path)
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor::default())
             .await?;
@@ -120,53 +120,48 @@ impl Renderer {
             mapped_at_creation: false,
         });
 
-        // wgpu 29: PipelineLayoutDescriptor uses `immediate_size` (not push_constant_ranges)
-        //          bind_group_layouts is &[Option<&BindGroupLayout>]
-        let pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[Some(&bgl)],
-                immediate_size: 0,
-            });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
+        });
 
-        // wgpu 29: RenderPipelineDescriptor uses `multiview_mask` (not `multiview`)
-        let pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Main Pipeline"),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vs_main"),
-                    buffers: &[wgpu::VertexBufferLayout {
-                        array_stride: VERTEX_SIZE as u64,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &wgpu::vertex_attr_array![
-                            0 => Float32x3,
-                            1 => Float32x3
-                        ],
-                    }],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: config.format,
-                        blend: Some(wgpu::BlendState::REPLACE),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    cull_mode: None,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: None,
-                cache: None,
-            });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Main Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: VERTEX_SIZE as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![
+                        0 => Float32x3,
+                        1 => Float32x3
+                    ],
+                }],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
 
         Ok(Self {
             surface,
@@ -199,15 +194,21 @@ impl Renderer {
     ///
     /// Returns `true` if the surface needs reconfiguring (call `reconfigure()`).
     /// Returns `false` on success or a gracefully-skipped frame (timeout/occluded).
-    pub fn render(&mut self, game: &GameView) -> bool {
+    pub fn render(&mut self, game: &GameView, debug: &DebugSettings) -> bool {
         // Build vertex data
-        let mut verts: Vec<Vertex> = Vec::with_capacity(3000);
+        let mut verts: Vec<Vertex> = Vec::with_capacity(4000);
         build_floor(&mut verts);
+        build_walls(&mut verts);
         build_players(&mut verts, game);
+
+        if debug.show_overlay {
+            build_debug_overlay(&mut verts, game, debug);
+        }
+
         verts.truncate(MAX_VERTICES);
 
-        // Update camera uniform
-        let cam = local_player_pos(game);
+        // Camera follows predicted position for the local player
+        let cam = game.predicted_pos;
         let aspect = self.size.width as f32 / self.size.height.max(1) as f32;
         let vp = build_view_proj(cam.x, cam.z, aspect);
         self.queue.write_buffer(
@@ -220,15 +221,15 @@ impl Renderer {
         self.queue
             .write_buffer(&self.vertex_buf, 0, bytemuck::cast_slice(&verts));
 
-        // wgpu 29: get_current_texture() returns CurrentSurfaceTexture (an enum)
         let surface_texture = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(st)
             | wgpu::CurrentSurfaceTexture::Suboptimal(st) => st,
-            wgpu::CurrentSurfaceTexture::Timeout
-            | wgpu::CurrentSurfaceTexture::Occluded => return false, // skip frame
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return false;
+            }
             wgpu::CurrentSurfaceTexture::Outdated
             | wgpu::CurrentSurfaceTexture::Lost
-            | wgpu::CurrentSurfaceTexture::Validation => return true, // reconfigure
+            | wgpu::CurrentSurfaceTexture::Validation => return true,
         };
 
         let view = surface_texture
@@ -239,8 +240,6 @@ impl Renderer {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
-            // wgpu 29: RenderPassDescriptor requires `multiview_mask`;
-            //          RenderPassColorAttachment requires `depth_slice`
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Main Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -291,23 +290,16 @@ fn build_floor(verts: &mut Vec<Vertex>) {
     }
 }
 
-fn build_players(verts: &mut Vec<Vertex>, game: &GameView) {
-    const HALF: f32 = 1.0;
-    for p in &game.players {
-        let w = p.position.to_vec3();
-        let is_local = game.player_id == Some(p.id);
-        let (r, g, b) = if is_local {
-            (0.0_f32, 0.9, 0.9) // cyan — local player
-        } else {
-            (1.0_f32, 0.5, 0.0) // orange — remote players
-        };
+fn build_walls(verts: &mut Vec<Vertex>) {
+    let (r, g, b) = (0.45_f32, 0.35, 0.25); // brownish wall color
+    for wall in physics::WALLS {
         push_quad(
             verts,
-            w.x - HALF,
-            w.z - HALF,
-            w.x + HALF,
-            w.z + HALF,
-            0.01, // just above the floor
+            wall.x_min,
+            wall.z_min,
+            wall.x_max,
+            wall.z_max,
+            WALL_HEIGHT,
             r,
             g,
             b,
@@ -315,12 +307,136 @@ fn build_players(verts: &mut Vec<Vertex>, game: &GameView) {
     }
 }
 
+fn build_players(verts: &mut Vec<Vertex>, game: &GameView) {
+    const HALF: f32 = 1.0;
+    for p in &game.players {
+        let is_local = game.player_id == Some(p.id);
+        if is_local {
+            // Draw local player at the predicted position (CSP)
+            let w = game.predicted_pos;
+            push_quad(
+                verts,
+                w.x - HALF,
+                w.z - HALF,
+                w.x + HALF,
+                w.z + HALF,
+                0.01,
+                0.0,
+                0.9,
+                0.9, // cyan
+            );
+        } else {
+            // Remote players at server-reported positions
+            let w = p.position.to_vec3();
+            push_quad(
+                verts,
+                w.x - HALF,
+                w.z - HALF,
+                w.x + HALF,
+                w.z + HALF,
+                0.01,
+                1.0,
+                0.5,
+                0.0, // orange
+            );
+        }
+    }
+}
+
+fn build_debug_overlay(verts: &mut Vec<Vertex>, game: &GameView, debug: &DebugSettings) {
+    // Ghost: server-confirmed position shown as a semi-transparent red square
+    let s = game.server_pos;
+    const GHOST_HALF: f32 = 0.8;
+    push_quad(
+        verts,
+        s.x - GHOST_HALF,
+        s.z - GHOST_HALF,
+        s.x + GHOST_HALF,
+        s.z + GHOST_HALF,
+        0.015,
+        0.8,
+        0.2,
+        0.2, // red ghost
+    );
+
+    // HUD indicators in screen-relative coordinates (top-left corner, world-space offset from camera)
+    // We draw small colored bars to indicate RTT / latency bracket
+    // Since we don't have text rendering, use color-coded indicators:
+    //   - Green bar = low RTT (<30ms)
+    //   - Yellow bar = medium (30-100ms)
+    //   - Red bar = high (>100ms)
+    // Bar position is relative to the predicted (camera) position
+    let cam = game.predicted_pos;
+
+    // RTT indicator bar (top-left of view)
+    let bar_x = cam.x - 18.0;
+    let bar_z = cam.z - 18.0;
+    let bar_width = (game.rtt_ms / 200.0).min(1.0) * 5.0; // max 5 units wide at 200ms
+    let (r, g, b) = if game.rtt_ms < 30.0 {
+        (0.0_f32, 0.8, 0.2) // green
+    } else if game.rtt_ms < 100.0 {
+        (0.9_f32, 0.8, 0.0) // yellow
+    } else {
+        (0.9_f32, 0.2, 0.1) // red
+    };
+    push_quad(
+        verts,
+        bar_x,
+        bar_z,
+        bar_x + bar_width.max(0.3),
+        bar_z + 0.5,
+        0.03,
+        r,
+        g,
+        b,
+    );
+
+    // Pending inputs indicator (small dots below RTT bar)
+    let pending = game.pending_inputs.min(20) as f32;
+    let dot_x = cam.x - 18.0;
+    let dot_z = cam.z - 17.0;
+    push_quad(
+        verts,
+        dot_x,
+        dot_z,
+        dot_x + pending * 0.3,
+        dot_z + 0.3,
+        0.03,
+        0.5,
+        0.5,
+        0.9, // blue-ish
+    );
+
+    // Simulated latency indicator
+    if debug.simulated_latency_ms > 0 {
+        let lat_x = cam.x - 18.0;
+        let lat_z = cam.z - 16.0;
+        let lat_w = debug.simulated_latency_ms as f32 / 200.0 * 5.0;
+        push_quad(
+            verts,
+            lat_x,
+            lat_z,
+            lat_x + lat_w,
+            lat_z + 0.3,
+            0.03,
+            0.9,
+            0.4,
+            0.9, // purple-ish
+        );
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn push_quad(
     verts: &mut Vec<Vertex>,
-    x0: f32, z0: f32, x1: f32, z1: f32,
+    x0: f32,
+    z0: f32,
+    x1: f32,
+    z1: f32,
     y: f32,
-    r: f32, g: f32, b: f32,
+    r: f32,
+    g: f32,
+    b: f32,
 ) {
     let tl = Vertex::new(x0, y, z0, r, g, b);
     let tr = Vertex::new(x1, y, z0, r, g, b);
@@ -332,8 +448,6 @@ fn push_quad(
 // ── Camera ────────────────────────────────────────────────────────────────────
 
 fn build_view_proj(cam_x: f32, cam_z: f32, aspect: f32) -> Mat4 {
-    // Top-down orthographic: camera floats directly above the player, looks straight down.
-    // Up vector = world -Z so that north (-Z) renders at the top of the screen.
     let view = Mat4::look_at_rh(
         Vec3::new(cam_x, CAM_HEIGHT, cam_z),
         Vec3::new(cam_x, 0.0, cam_z),
@@ -343,11 +457,4 @@ fn build_view_proj(cam_x: f32, cam_z: f32, aspect: f32) -> Mat4 {
     let hh = VIEW_HALF;
     let proj = Mat4::orthographic_rh(-hw, hw, -hh, hh, 1.0, CAM_HEIGHT + 10.0);
     proj * view
-}
-
-fn local_player_pos(game: &GameView) -> Vec3 {
-    game.player_id
-        .and_then(|id| game.players.iter().find(|p| p.id == id))
-        .map(|p| p.position.to_vec3())
-        .unwrap_or(Vec3::ZERO)
 }

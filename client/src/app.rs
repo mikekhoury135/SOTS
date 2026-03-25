@@ -4,7 +4,7 @@ use winit::{
     application::ApplicationHandler,
     event::{ElementState, WindowEvent},
     event_loop::ActiveEventLoop,
-    keyboard::PhysicalKey,
+    keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowAttributes, WindowId},
 };
 
@@ -68,8 +68,31 @@ impl ApplicationHandler for App {
                 state.renderer.resize(new_size);
             }
 
-            WindowEvent::KeyboardInput { event: key_event, .. } => {
+            WindowEvent::KeyboardInput {
+                event: key_event, ..
+            } => {
                 if let PhysicalKey::Code(code) = key_event.physical_key {
+                    // F3/F4 toggles on press only
+                    if key_event.state == ElementState::Pressed {
+                        match code {
+                            KeyCode::F3 => {
+                                let mut dbg = self.shared.debug.lock();
+                                dbg.show_overlay = !dbg.show_overlay;
+                                return;
+                            }
+                            KeyCode::F4 => {
+                                let mut dbg = self.shared.debug.lock();
+                                dbg.cycle_latency();
+                                tracing::info!(
+                                    "Simulated latency: {} ms",
+                                    dbg.simulated_latency_ms
+                                );
+                                return;
+                            }
+                            _ => {}
+                        }
+                    }
+
                     let mut input = self.shared.input.lock();
                     match key_event.state {
                         ElementState::Pressed => input.press(code),
@@ -80,7 +103,8 @@ impl ApplicationHandler for App {
 
             WindowEvent::RedrawRequested => {
                 let game = self.shared.game.lock().clone();
-                if state.renderer.render(&game) {
+                let debug = self.shared.debug.lock().clone();
+                if state.renderer.render(&game, &debug) {
                     state.renderer.reconfigure();
                 }
             }
