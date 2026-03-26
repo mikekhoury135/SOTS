@@ -57,14 +57,14 @@ impl Wall {
 /// All walls are offset from spawn (Vec3::ZERO) so players can move freely
 /// from the start and walk a short distance to reach and test wall collision.
 pub const WALLS: &[Wall] = &[
-    // South barrier — walk forward (W) ~12 units from spawn
-    Wall::new(-8.0, 12.0, 8.0, 16.0),
+    // North barrier — walk forward (W, -Z) ~12 units from spawn
+    Wall::new(-8.0, -16.0, 8.0, -12.0),
     // East pillar — strafe right (D) ~15 units from spawn
     Wall::new(15.0, -6.0, 21.0, 6.0),
-    // North-west box — further exploration
-    Wall::new(-40.0, -35.0, -28.0, -22.0),
-    // South-east wall — far corner
-    Wall::new(28.0, 30.0, 44.0, 34.0),
+    // South-west box — further exploration
+    Wall::new(-40.0, 22.0, -28.0, 35.0),
+    // North-east wall — far corner
+    Wall::new(28.0, -34.0, 44.0, -30.0),
 ];
 
 // ── Movement ─────────────────────────────────────────────────────────────────
@@ -78,8 +78,9 @@ pub fn apply_input(pos: &mut Vec3, yaw: &mut f32, frame: &InputFrame) {
     *yaw += frame.yaw_delta as f32 * YAW_SENSITIVITY;
 
     let (sin_y, cos_y) = yaw.sin_cos();
-    let forward = Vec3::new(sin_y, 0.0, cos_y);
-    let right = Vec3::new(cos_y, 0.0, -sin_y);
+    // Screen-up is -Z (camera up vector = Vec3::NEG_Z), so forward faces -Z at yaw=0.
+    let forward = Vec3::new(sin_y, 0.0, -cos_y);
+    let right = Vec3::new(cos_y, 0.0, sin_y);
 
     let m = frame.movement;
 

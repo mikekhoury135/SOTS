@@ -216,7 +216,7 @@ impl GameState {
 
         for (shooter_entity, origin, yaw) in &shooters {
             let (sin_y, cos_y) = yaw.sin_cos();
-            let direction = Vec3::new(sin_y, 0.0, cos_y);
+            let direction = Vec3::new(sin_y, 0.0, -cos_y); // matches physics::apply_input forward
 
             // Build targets excluding the shooter
             let targets: Vec<(Vec3, usize)> = alive_players
