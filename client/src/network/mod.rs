@@ -94,7 +94,6 @@ async fn connect_and_run(server_addr: String, shared: Arc<SharedState>) -> anyho
                         let recv_time = Instant::now();
 
                         // ── RTT estimate (simple: time since we sent the acked input) ──
-                        // This is a rough estimate; good enough for the debug overlay.
                         let elapsed = recv_time.duration_since(last_input_send_time);
                         rtt_ms = rtt_ms * 0.9 + elapsed.as_secs_f32() * 1000.0 * 0.1;
 
@@ -135,6 +134,7 @@ async fn connect_and_run(server_addr: String, shared: Arc<SharedState>) -> anyho
                             let mut game = shared.game.lock();
                             game.players = players;
                             game.predicted_pos = predicted_pos;
+                            game.predicted_yaw = predicted_yaw;
                             game.server_pos = server_pos;
                             game.rtt_ms = rtt_ms;
                             game.server_tick = server_tick;
@@ -153,12 +153,20 @@ async fn connect_and_run(server_addr: String, shared: Arc<SharedState>) -> anyho
 
             // Send input on each tick
             _ = interval.tick() => {
-                let movement = shared.input.lock().movement;
+                // Read keyboard movement + drain accumulated mouse yaw
+                let (movement, raw_yaw_delta) = {
+                    let mut input = shared.input.lock();
+                    (input.movement, input.take_yaw_delta())
+                };
+
+                // Clamp raw_yaw_delta to i16 range for the wire format
+                let yaw_delta = raw_yaw_delta.clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+
                 let frame = InputFrame {
                     tick,
                     sequence: input_sequence,
                     movement,
-                    yaw_delta: 0,
+                    yaw_delta,
                     pitch_delta: 0,
                     flags: PlayerFlags::new(),
                 };
@@ -172,10 +180,11 @@ async fn connect_and_run(server_addr: String, shared: Arc<SharedState>) -> anyho
                 }
                 pending_inputs.push_back(frame);
 
-                // ── Update predicted position in game view ──
+                // ── Update predicted position + yaw in game view ──
                 {
                     let mut game = shared.game.lock();
                     game.predicted_pos = predicted_pos;
+                    game.predicted_yaw = predicted_yaw;
                     game.client_tick = tick;
                     game.pending_inputs = pending_inputs.len();
                 }

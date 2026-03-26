@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, MouseButton, WindowEvent},
+    event::{DeviceEvent, DeviceId, ElementState, MouseButton, WindowEvent},
     event_loop::ActiveEventLoop,
     keyboard::{KeyCode, PhysicalKey},
-    window::{Window, WindowAttributes, WindowId},
+    window::{CursorGrabMode, Window, WindowAttributes, WindowId},
 };
 
 use crate::{renderer::Renderer, state::SharedState};
@@ -27,12 +27,24 @@ impl App {
             state: None,
         }
     }
+
+    /// Grab the cursor for FPS mouse look.
+    fn grab_cursor(window: &Window) {
+        // Try Locked first (ideal for FPS — hides & locks), fall back to Confined.
+        if window
+            .set_cursor_grab(CursorGrabMode::Locked)
+            .or_else(|_| window.set_cursor_grab(CursorGrabMode::Confined))
+            .is_ok()
+        {
+            window.set_cursor_visible(false);
+        }
+    }
 }
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_some() {
-            return; // already initialised (called again on mobile resume)
+            return;
         }
 
         let attrs = WindowAttributes::default()
@@ -44,6 +56,9 @@ impl ApplicationHandler for App {
                 .create_window(attrs)
                 .expect("Failed to create window"),
         );
+
+        // Capture the cursor for FPS mouse-look
+        Self::grab_cursor(&window);
 
         let renderer = pollster::block_on(Renderer::new(window.clone()))
             .expect("Failed to initialise wgpu renderer");
@@ -72,9 +87,12 @@ impl ApplicationHandler for App {
                 event: key_event, ..
             } => {
                 if let PhysicalKey::Code(code) = key_event.physical_key {
-                    // F3/F4 toggles on press only
                     if key_event.state == ElementState::Pressed {
                         match code {
+                            KeyCode::Escape => {
+                                event_loop.exit();
+                                return;
+                            }
                             KeyCode::F3 => {
                                 let mut dbg = self.shared.debug.lock();
                                 dbg.show_overlay = !dbg.show_overlay;
@@ -101,11 +119,20 @@ impl ApplicationHandler for App {
                 }
             }
 
-            WindowEvent::MouseInput { state: btn_state, button, .. } => {
+            WindowEvent::MouseInput {
+                state: btn_state,
+                button,
+                ..
+            } => {
                 if button == MouseButton::Left {
                     let mut input = self.shared.input.lock();
                     input.set_shoot(btn_state == ElementState::Pressed);
                 }
+            }
+
+            WindowEvent::Focused(true) => {
+                // Re-grab cursor when the window regains focus
+                Self::grab_cursor(&state.window);
             }
 
             WindowEvent::RedrawRequested => {
@@ -120,8 +147,19 @@ impl ApplicationHandler for App {
         }
     }
 
+    fn device_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _device_id: DeviceId,
+        event: DeviceEvent,
+    ) {
+        if let DeviceEvent::MouseMotion { delta } = event {
+            let mut input = self.shared.input.lock();
+            input.accumulate_yaw(delta.0);
+        }
+    }
+
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        // Drive continuous rendering: request a redraw every iteration.
         if let Some(state) = &self.state {
             state.window.request_redraw();
         }

@@ -10,6 +10,47 @@ Versions follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.0] — 2026-03-26
+
+### Added
+- **First-person 3D camera** — perspective projection (90° FOV) from eye height (1.5 units).
+  Camera follows the player's predicted position and yaw, providing a true FPS view.
+- **Mouse look** — cursor is captured on startup (`CursorGrabMode::Locked` with `Confined`
+  fallback). Raw `DeviceEvent::MouseMotion` delta drives yaw rotation via `yaw_delta` in
+  `InputFrame`. Accumulated between ticks and drained per network tick for smooth turning.
+- **Depth buffer** — `Depth32Float` render attachment enables correct 3D occlusion. Depth
+  texture is recreated on window resize.
+- **3D wall geometry** — walls rendered as shaded boxes (floor to 3.0 units high) with darker
+  side faces for visual depth. Uses back-face culling (`wgpu::Face::Back`).
+- **3D player models** — remote players rendered as orange boxes (1.0 × 2.0 units). Local
+  player hidden in first person (no self-rendering).
+- **Crosshair** — white cross overlay rendered in world space at a fixed distance in front
+  of the camera.
+- **Sky color** — clear color changed from near-black to light blue (0.4, 0.6, 0.9) for an
+  outdoor sky feel.
+- **Escape to quit** — `Escape` key exits the game cleanly.
+- **Focus re-grab** — cursor is re-captured when the window regains focus.
+- `shared::physics` constants: `WALL_HEIGHT` (3.0), `EYE_HEIGHT` (1.5), `PLAYER_HEIGHT` (2.0).
+- `GameView::predicted_yaw` — renderer reads camera direction from prediction state.
+- `InputSnapshot::accumulate_yaw()` / `take_yaw_delta()` — thread-safe mouse delta
+  accumulation between the winit event loop and the network tick.
+
+### Changed
+- **Controls** — shooting moved from `Space` to left mouse click for better FPS feel.
+  W/S movement direction corrected (W = screen-up = −Z, S = screen-down = +Z).
+- **Renderer** — complete rewrite from top-down orthographic to first-person perspective.
+  Floor tiles, wall boxes, player boxes, crosshair, and debug overlay all rendered in 3D.
+  Pipeline now includes depth-stencil state and back-face culling.
+- **Shoot direction** — server hitscan direction updated to match physics forward convention
+  (`sin_y, 0, -cos_y`).
+- **Wall layout** — north barrier and far walls repositioned to align with corrected forward
+  direction. East pillar unchanged.
+- **Debug overlay** — server ghost rendered as a red 3D box at server-confirmed position.
+  HUD bars (RTT, pending inputs, simulated latency) rendered as small world-space quads
+  anchored to the camera view.
+
+---
+
 ## [0.4.0] — 2026-03-25
 
 ### Added
