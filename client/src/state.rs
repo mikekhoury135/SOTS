@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use glam::Vec3;
 use parking_lot::Mutex;
 use shared::types::{PlayerId, PlayerState};
@@ -13,6 +15,9 @@ pub struct InputSnapshot {
     pub movement: u8,
     /// Accumulated mouse X delta since last tick (consumed by the network loop).
     pub yaw_delta_accum: f32,
+    /// Set on left-click press; stays true until the next tick consumes it.
+    /// Guarantees the SHOOT bit is sent for at least one full tick even on fast taps.
+    pub fire_requested: bool,
 }
 
 impl InputSnapshot {
@@ -29,6 +34,17 @@ impl InputSnapshot {
     pub fn set_shoot(&mut self, active: bool) {
         self.inner.set_shoot(active);
         self.movement = self.inner.movement;
+        // On press, latch fire_requested so it survives a tap faster than one tick.
+        if active {
+            self.fire_requested = true;
+        }
+    }
+
+    /// Consume the fire request. Returns true if a shot should be sent this tick.
+    pub fn take_fire_request(&mut self) -> bool {
+        let had = self.fire_requested;
+        self.fire_requested = false;
+        had
     }
 
     /// Accumulate raw mouse X movement (called from DeviceEvent::MouseMotion).
@@ -94,6 +110,8 @@ pub struct GameView {
     pub server_tick: u16,
     /// Number of unacknowledged inputs in the prediction buffer.
     pub pending_inputs: usize,
+    /// Time of the last shot fired (for debug flash indicator, 300ms duration).
+    pub last_shot_time: Option<Instant>,
 }
 
 impl GameView {
@@ -108,6 +126,7 @@ impl GameView {
             client_tick: 0,
             server_tick: 0,
             pending_inputs: 0,
+            last_shot_time: None,
         }
     }
 }
@@ -128,6 +147,7 @@ impl SharedState {
                 inner: InputState::new(),
                 movement: 0,
                 yaw_delta_accum: 0.0,
+                fire_requested: false,
             }),
             game: Mutex::new(GameView::new()),
             debug: Mutex::new(DebugSettings::new()),

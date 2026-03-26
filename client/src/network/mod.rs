@@ -57,6 +57,7 @@ async fn connect_and_run(server_addr: String, shared: Arc<SharedState>) -> anyho
     // ── Prediction state ─────────────────────────────────────────────────────
     let mut predicted_pos = Vec3::ZERO;
     let mut predicted_yaw: f32 = 0.0;
+    let mut predicted_vy: f32 = 0.0;
     let mut input_sequence: u32 = 1;
     let mut pending_inputs: VecDeque<InputFrame> = VecDeque::with_capacity(MAX_PENDING_INPUTS);
 
@@ -124,9 +125,16 @@ async fn connect_and_run(server_addr: String, shared: Arc<SharedState>) -> anyho
                         // ── Reconciliation: rewind to server state, replay unacked inputs ──
                         predicted_pos = server_pos;
                         predicted_yaw = server_yaw;
+                        // vy is not reconciled from server (not in snapshot); reset to zero on landing
+                        predicted_vy = 0.0;
 
                         for frame in &pending_inputs {
-                            physics::apply_input(&mut predicted_pos, &mut predicted_yaw, frame);
+                            physics::apply_input(
+                                &mut predicted_pos,
+                                &mut predicted_yaw,
+                                &mut predicted_vy,
+                                frame,
+                            );
                         }
 
                         // ── Update game view for the renderer ──
@@ -153,10 +161,17 @@ async fn connect_and_run(server_addr: String, shared: Arc<SharedState>) -> anyho
 
             // Send input on each tick
             _ = interval.tick() => {
-                // Read keyboard movement + drain accumulated mouse yaw
-                let (movement, raw_yaw_delta) = {
+                // Read keyboard movement + drain accumulated mouse yaw + consume fire request
+                let (base_movement, raw_yaw_delta, fire) = {
                     let mut input = shared.input.lock();
-                    (input.movement, input.take_yaw_delta())
+                    (input.movement, input.take_yaw_delta(), input.take_fire_request())
+                };
+
+                // fire_requested ensures even a sub-tick tap always produces one SHOOT frame
+                let movement = if fire {
+                    base_movement | shared::types::movement::SHOOT
+                } else {
+                    base_movement
                 };
 
                 // Clamp raw_yaw_delta to i16 range for the wire format
@@ -172,7 +187,7 @@ async fn connect_and_run(server_addr: String, shared: Arc<SharedState>) -> anyho
                 };
 
                 // ── Client-side prediction: apply input immediately ──
-                physics::apply_input(&mut predicted_pos, &mut predicted_yaw, &frame);
+                physics::apply_input(&mut predicted_pos, &mut predicted_yaw, &mut predicted_vy, &frame);
 
                 // ── Store in pending buffer for reconciliation ──
                 if pending_inputs.len() >= MAX_PENDING_INPUTS {
@@ -187,6 +202,9 @@ async fn connect_and_run(server_addr: String, shared: Arc<SharedState>) -> anyho
                     game.predicted_yaw = predicted_yaw;
                     game.client_tick = tick;
                     game.pending_inputs = pending_inputs.len();
+                    if movement & shared::types::movement::SHOOT != 0 {
+                        game.last_shot_time = Some(Instant::now());
+                    }
                 }
 
                 // ── Send to server (possibly delayed) ──

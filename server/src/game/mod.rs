@@ -16,6 +16,7 @@ use shared::{
 
 pub struct WorldPos(pub Vec3);
 pub struct WorldYaw(pub f32); // radians
+pub struct VerticalVelocity(pub f32); // units/second, positive = up
 pub struct PlayerTag(pub PlayerId);
 pub struct Health(pub u8);
 /// Ticks remaining until respawn. When > 0, the player is dead.
@@ -92,6 +93,7 @@ impl GameState {
                 let entity = self.world.spawn((
                     WorldPos(spawn),
                     WorldYaw(0.0),
+                    VerticalVelocity(0.0),
                     PlayerTag(id),
                     Health(MAX_HEALTH),
                     RespawnTimer(0),
@@ -154,13 +156,17 @@ impl GameState {
 
         // Actually respawn (set health, move to spawn point)
         for entity in respawns {
-            if let Ok((pos, health, timer)) =
-                self.world
-                    .query_one_mut::<(&mut WorldPos, &mut Health, &mut RespawnTimer)>(entity)
+            if let Ok((pos, vy, health, timer)) = self.world.query_one_mut::<(
+                &mut WorldPos,
+                &mut VerticalVelocity,
+                &mut Health,
+                &mut RespawnTimer,
+            )>(entity)
             {
                 let spawn = SPAWN_POINTS[self.spawn_index % SPAWN_POINTS.len()];
                 self.spawn_index += 1;
                 pos.0 = spawn;
+                vy.0 = 0.0;
                 health.0 = MAX_HEALTH;
                 timer.0 = 0;
             }
@@ -183,11 +189,11 @@ impl GameState {
                 continue;
             }
 
-            if let Ok((pos, yaw)) = self
-                .world
-                .query_one_mut::<(&mut WorldPos, &mut WorldYaw)>(*entity)
+            if let Ok((pos, yaw, vy)) =
+                self.world
+                    .query_one_mut::<(&mut WorldPos, &mut WorldYaw, &mut VerticalVelocity)>(*entity)
             {
-                physics::apply_input(&mut pos.0, &mut yaw.0, frame);
+                physics::apply_input(&mut pos.0, &mut yaw.0, &mut vy.0, frame);
             }
         }
 
