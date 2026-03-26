@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
@@ -27,7 +28,7 @@ impl Vertex {
     }
 }
 
-const MAX_VERTICES: usize = 16384;
+const MAX_VERTICES: usize = 32768;
 const VERTEX_SIZE: usize = std::mem::size_of::<Vertex>();
 
 const MAP_HALF: f32 = 100.0;
@@ -37,8 +38,14 @@ const TILES: i32 = (MAP_HALF * 2.0 / TILE_SIZE) as i32; // 20×20
 // ── 3D constants ─────────────────────────────────────────────────────────────
 
 const FOV_Y: f32 = std::f32::consts::FRAC_PI_2; // 90° vertical FOV
-const NEAR: f32 = 0.1;
+const NEAR: f32 = 0.05;
 const FAR: f32 = 250.0;
+
+/// How long to show the shot flash indicator.
+const SHOT_FLASH_DURATION: Duration = Duration::from_millis(250);
+
+// Wire thickness for debug hitbox outlines.
+const WIRE_T: f32 = 0.04;
 
 // ── Renderer ─────────────────────────────────────────────────────────────────
 
@@ -212,28 +219,31 @@ impl Renderer {
     pub fn render(&mut self, game: &GameView, debug: &DebugSettings) -> bool {
         let aspect = self.size.width as f32 / self.size.height.max(1) as f32;
 
-        // Camera from predicted position + yaw
         let eye = Vec3::new(
             game.predicted_pos.x,
-            physics::EYE_HEIGHT,
+            game.predicted_pos.y + physics::EYE_HEIGHT,
             game.predicted_pos.z,
         );
         let (sin_y, cos_y) = game.predicted_yaw.sin_cos();
-        let forward = Vec3::new(sin_y, 0.0, -cos_y); // matches physics convention
+        let forward = Vec3::new(sin_y, 0.0, -cos_y);
         let right = Vec3::new(cos_y, 0.0, sin_y);
         let target = eye + forward;
 
         let vp = build_view_proj(eye, target, aspect);
 
-        // Build vertex data
-        let mut verts: Vec<Vertex> = Vec::with_capacity(6000);
+        let just_fired = game
+            .last_shot_time
+            .is_some_and(|t| t.elapsed() < SHOT_FLASH_DURATION);
+
+        let mut verts: Vec<Vertex> = Vec::with_capacity(8000);
         build_floor(&mut verts);
+        build_ceiling(&mut verts);
         build_walls(&mut verts);
         build_players(&mut verts, game);
-        build_crosshair(&mut verts, eye, forward, right);
+        build_crosshair(&mut verts, eye, forward, right, just_fired);
 
         if debug.show_overlay {
-            build_debug_overlay(&mut verts, game, debug, eye, forward, right);
+            build_debug_overlay(&mut verts, game, debug, eye, forward, right, just_fired);
         }
 
         verts.truncate(MAX_VERTICES);
@@ -333,72 +343,169 @@ fn build_view_proj(eye: Vec3, target: Vec3, aspect: f32) -> Mat4 {
     proj * view
 }
 
-// ── Geometry helpers ──────────────────────────────────────────────────────────
+// ── Floor / Ceiling ───────────────────────────────────────────────────────────
 
 fn build_floor(verts: &mut Vec<Vertex>) {
     for row in 0..TILES {
         for col in 0..TILES {
             let x0 = -MAP_HALF + col as f32 * TILE_SIZE;
             let z0 = -MAP_HALF + row as f32 * TILE_SIZE;
+            let x1 = x0 + TILE_SIZE;
+            let z1 = z0 + TILE_SIZE;
             let (r, g, b) = if (row + col) % 2 == 0 {
-                (0.22_f32, 0.28, 0.22)
+                (0.28_f32, 0.34, 0.28)
             } else {
-                (0.16_f32, 0.20, 0.16)
+                (0.18_f32, 0.22, 0.18)
             };
-            // Floor quad at y=0, facing up (+Y) — CCW winding from above
-            let tl = Vertex::new(x0, 0.0, z0, r, g, b);
-            let tr = Vertex::new(x0 + TILE_SIZE, 0.0, z0, r, g, b);
-            let bl = Vertex::new(x0, 0.0, z0 + TILE_SIZE, r, g, b);
-            let br = Vertex::new(x0 + TILE_SIZE, 0.0, z0 + TILE_SIZE, r, g, b);
-            // Two triangles: CCW when viewed from +Y
-            verts.extend_from_slice(&[tl, tr, bl, tr, br, bl]);
+            // Floor faces +Y. CCW from above: (x0,z0)→(x0,z1)→(x1,z1)→(x1,z0)
+            push_face(
+                verts,
+                Vertex::new(x0, 0.0, z0, r, g, b),
+                Vertex::new(x0, 0.0, z1, r, g, b),
+                Vertex::new(x1, 0.0, z1, r, g, b),
+                Vertex::new(x1, 0.0, z0, r, g, b),
+            );
         }
     }
 }
+
+fn build_ceiling(verts: &mut Vec<Vertex>) {
+    // Ceiling at CEILING_HEIGHT, faces -Y (visible from below).
+    // CCW from below = CW from above: (x0,z0)→(x1,z0)→(x1,z1)→(x0,z1)
+    let h = physics::CEILING_HEIGHT;
+    let half = MAP_HALF;
+    let (r, g, b) = (0.18_f32, 0.20, 0.22); // slightly cool dark tone
+
+    // One large quad — no tiling needed since it's above the player
+    push_face(
+        verts,
+        Vertex::new(-half, h, -half, r, g, b),
+        Vertex::new(half, h, -half, r, g, b),
+        Vertex::new(half, h, half, r, g, b),
+        Vertex::new(-half, h, half, r, g, b),
+    );
+}
+
+// ── Walls ─────────────────────────────────────────────────────────────────────
 
 fn build_walls(verts: &mut Vec<Vertex>) {
     let h = physics::WALL_HEIGHT;
     for wall in physics::WALLS {
-        let x0 = wall.x_min;
-        let x1 = wall.x_max;
-        let z0 = wall.z_min;
-        let z1 = wall.z_max;
-        // Slightly vary color per face for visual depth
-        push_box(verts, x0, 0.0, z0, x1, h, z1, 0.45, 0.35, 0.25);
-    }
-}
-
-fn build_players(verts: &mut Vec<Vertex>, game: &GameView) {
-    let half = physics::PLAYER_HALF;
-    let ph = physics::PLAYER_HEIGHT;
-    for p in &game.players {
-        let is_local = game.player_id == Some(p.id);
-        if is_local {
-            continue; // Don't render the local player's body in first person
-        }
-        let w = p.position.to_vec3();
-        // Orange box for remote players
         push_box(
-            verts,
-            w.x - half,
-            0.0,
-            w.z - half,
-            w.x + half,
-            ph,
-            w.z + half,
-            1.0,
-            0.5,
-            0.0,
+            verts, wall.x_min, 0.0, wall.z_min, wall.x_max, h, wall.z_max, 0.45, 0.35, 0.25,
         );
     }
 }
 
-fn build_crosshair(verts: &mut Vec<Vertex>, eye: Vec3, forward: Vec3, right: Vec3) {
-    // Small white cross placed 2 units in front of the camera
+// ── Player models ─────────────────────────────────────────────────────────────
+
+fn build_players(verts: &mut Vec<Vertex>, game: &GameView) {
+    for p in &game.players {
+        if game.player_id == Some(p.id) {
+            continue; // don't render the local player (first-person)
+        }
+
+        let base = p.position.to_vec3();
+        // Decode player yaw so we can orient the face direction indicator
+        let player_yaw = p.yaw as f32 / 65536.0 * std::f32::consts::TAU;
+        let (sin_y, cos_y) = player_yaw.sin_cos();
+        let face_dir = Vec3::new(sin_y, 0.0, -cos_y); // forward facing direction
+
+        let is_dead = p.health == 0;
+        let (body_r, body_g, body_b): (f32, f32, f32) = if is_dead {
+            (0.3, 0.3, 0.3) // grey for dead
+        } else {
+            (1.0, 0.5, 0.1) // orange for alive
+        };
+
+        let x = base.x;
+        let z = base.z;
+
+        // ── Legs (y 0.0 → 0.85) ───────────────────────────────────────────
+        let leg_half = 0.28_f32;
+        let leg_top = 0.85_f32;
+        push_box(
+            verts,
+            x - leg_half,
+            0.0,
+            z - leg_half,
+            x + leg_half,
+            leg_top,
+            z + leg_half,
+            body_r * 0.7,
+            body_g * 0.7,
+            body_b * 0.7,
+        );
+
+        // ── Torso (y 0.85 → 1.65) ─────────────────────────────────────────
+        let torso_half = 0.38_f32;
+        let torso_bot = leg_top;
+        let torso_top = 1.65_f32;
+        push_box(
+            verts,
+            x - torso_half,
+            torso_bot,
+            z - torso_half,
+            x + torso_half,
+            torso_top,
+            z + torso_half,
+            body_r,
+            body_g,
+            body_b,
+        );
+
+        // ── Head (y 1.65 → 2.05) ──────────────────────────────────────────
+        let head_half = 0.25_f32;
+        let head_bot = torso_top;
+        let head_top = 2.05_f32;
+        push_box(
+            verts,
+            x - head_half,
+            head_bot,
+            z - head_half,
+            x + head_half,
+            head_top,
+            z + head_half,
+            body_r * 0.9 + 0.1,
+            body_g * 0.85 + 0.05,
+            body_b * 0.6 + 0.3, // skin-ish tint
+        );
+
+        // ── Face direction indicator (dark band on front of head) ─────────
+        // Place a thin dark quad on the face side of the head
+        let right_dir = Vec3::new(cos_y, 0.0, sin_y);
+        let face_center =
+            Vec3::new(x, (head_bot + head_top) * 0.5, z) + face_dir * (head_half + 0.005);
+        push_flat_quad(
+            verts,
+            face_center - right_dir * head_half * 0.8 - Vec3::Y * (head_half * 0.8),
+            right_dir * head_half * 1.6,
+            Vec3::Y * head_half * 1.6,
+            0.1,
+            0.1,
+            0.1,
+        );
+    }
+}
+
+// ── Crosshair ─────────────────────────────────────────────────────────────────
+
+fn build_crosshair(
+    verts: &mut Vec<Vertex>,
+    eye: Vec3,
+    forward: Vec3,
+    right: Vec3,
+    just_fired: bool,
+) {
     let center = eye + forward * 2.0;
     let up = Vec3::Y;
-    let arm = 0.02_f32; // half-size of each arm
-    let thick = 0.003_f32; // half-thickness
+    let arm = 0.025_f32;
+    let thick = 0.004_f32;
+    let (r, g, b) = if just_fired {
+        (1.0_f32, 1.0, 0.0) // yellow flash when shot
+    } else {
+        (1.0_f32, 1.0, 1.0) // white normally
+    };
 
     // Horizontal bar
     push_flat_quad(
@@ -406,22 +513,23 @@ fn build_crosshair(verts: &mut Vec<Vertex>, eye: Vec3, forward: Vec3, right: Vec
         center - right * arm - up * thick,
         right * arm * 2.0,
         up * thick * 2.0,
-        1.0,
-        1.0,
-        1.0,
+        r,
+        g,
+        b,
     );
-
     // Vertical bar
     push_flat_quad(
         verts,
         center - right * thick - up * arm,
         right * thick * 2.0,
         up * arm * 2.0,
-        1.0,
-        1.0,
-        1.0,
+        r,
+        g,
+        b,
     );
 }
+
+// ── Debug overlay ─────────────────────────────────────────────────────────────
 
 #[allow(clippy::too_many_arguments)]
 fn build_debug_overlay(
@@ -431,31 +539,91 @@ fn build_debug_overlay(
     eye: Vec3,
     forward: Vec3,
     right: Vec3,
+    just_fired: bool,
 ) {
     let up = Vec3::Y;
 
-    // Server ghost: red box at server-confirmed position
+    // ── Server ghost: red wire box at server-confirmed position ───────────
     let s = game.server_pos;
-    let half = physics::PLAYER_HALF * 0.8;
-    let ph = physics::PLAYER_HEIGHT;
-    push_box(
+    let gh = physics::PLAYER_HEIGHT;
+    let gh_half = physics::PLAYER_HALF;
+    push_wire_box(
         verts,
-        s.x - half,
-        0.0,
-        s.z - half,
-        s.x + half,
-        ph,
-        s.z + half,
-        0.8,
+        s.x - gh_half,
+        s.y,
+        s.z - gh_half,
+        s.x + gh_half,
+        s.y + gh,
+        s.z + gh_half,
+        0.9,
         0.2,
         0.2,
     );
 
-    // HUD bars placed in front of camera, offset to the bottom-left of view
-    let hud_base = eye + forward * 1.5 - right * 0.6 - up * 0.4;
+    // ── Player hitbox wireframes (cyan) ───────────────────────────────────
+    for p in &game.players {
+        if game.player_id == Some(p.id) {
+            continue;
+        }
+        let w = p.position.to_vec3();
+        let ph = physics::PLAYER_HALF;
+        push_wire_box(
+            verts,
+            w.x - ph,
+            w.y,
+            w.z - ph,
+            w.x + ph,
+            w.y + physics::PLAYER_HEIGHT,
+            w.z + ph,
+            0.0,
+            0.9,
+            0.9,
+        );
+    }
 
-    // RTT bar
-    let bar_width = (game.rtt_ms / 200.0).min(1.0) * 0.3;
+    // ── Wall hitbox wireframes (green) ────────────────────────────────────
+    for wall in physics::WALLS {
+        push_wire_box(
+            verts,
+            wall.x_min,
+            0.0,
+            wall.z_min,
+            wall.x_max,
+            physics::WALL_HEIGHT,
+            wall.z_max,
+            0.2,
+            0.9,
+            0.3,
+        );
+    }
+
+    // ── Shot ray indicator ────────────────────────────────────────────────
+    if just_fired {
+        let ray_end = eye + forward * shared::combat::HITSCAN_RANGE;
+        // Draw as a thin stick along the ray using a series of cross-section boxes
+        // Orient perpendicular to forward: use right and up
+        let perp_r = right * 0.03;
+        let perp_u = up * 0.03;
+        push_face(
+            verts,
+            vert(eye + perp_r, 1.0, 1.0, 0.0),
+            vert(ray_end + perp_r, 1.0, 1.0, 0.0),
+            vert(ray_end - perp_r, 1.0, 1.0, 0.0),
+            vert(eye - perp_r, 1.0, 1.0, 0.0),
+        );
+        push_face(
+            verts,
+            vert(eye + perp_u, 1.0, 1.0, 0.0),
+            vert(eye - perp_u, 1.0, 1.0, 0.0),
+            vert(ray_end - perp_u, 1.0, 1.0, 0.0),
+            vert(ray_end + perp_u, 1.0, 1.0, 0.0),
+        );
+    }
+
+    // ── HUD bars (bottom-left of view) ────────────────────────────────────
+    let hud_base = eye + forward * 1.5 - right * 0.65 - up * 0.42;
+
+    let bar_w = (game.rtt_ms / 200.0).min(1.0) * 0.28;
     let (r, g, b) = if game.rtt_ms < 30.0 {
         (0.0_f32, 0.8, 0.2)
     } else if game.rtt_ms < 100.0 {
@@ -466,34 +634,31 @@ fn build_debug_overlay(
     push_flat_quad(
         verts,
         hud_base,
-        right * bar_width.max(0.02),
-        up * 0.015,
+        right * bar_w.max(0.02),
+        up * 0.014,
         r,
         g,
         b,
     );
 
-    // Pending inputs bar (below RTT bar)
     let pending = game.pending_inputs.min(20) as f32;
-    let pending_w = pending * 0.015;
     push_flat_quad(
         verts,
-        hud_base - up * 0.025,
-        right * pending_w.max(0.005),
-        up * 0.01,
+        hud_base - up * 0.023,
+        right * (pending * 0.014).max(0.005),
+        up * 0.010,
         0.5,
         0.5,
         0.9,
     );
 
-    // Simulated latency bar
     if debug.simulated_latency_ms > 0 {
-        let lat_w = debug.simulated_latency_ms as f32 / 200.0 * 0.3;
+        let lat_w = debug.simulated_latency_ms as f32 / 200.0 * 0.28;
         push_flat_quad(
             verts,
-            hud_base - up * 0.045,
+            hud_base - up * 0.042,
             right * lat_w,
-            up * 0.01,
+            up * 0.010,
             0.9,
             0.4,
             0.9,
@@ -501,10 +666,176 @@ fn build_debug_overlay(
     }
 }
 
-// ── Box builder (5 faces — no bottom) ────────────────────────────────────────
+// ── Wire box ──────────────────────────────────────────────────────────────────
 
-/// Push a 3D box from (x0,y0,z0) to (x1,y1,z1). CCW winding facing outward.
-/// Slightly darkens side faces for visual depth.
+/// Draw a 3D box outline using thin axis-aligned stick boxes for each of the 12 edges.
+#[allow(clippy::too_many_arguments)]
+fn push_wire_box(
+    verts: &mut Vec<Vertex>,
+    x0: f32,
+    y0: f32,
+    z0: f32,
+    x1: f32,
+    y1: f32,
+    z1: f32,
+    r: f32,
+    g: f32,
+    b: f32,
+) {
+    let t = WIRE_T;
+    // Bottom 4 edges (y=y0)
+    push_box(
+        verts,
+        x0,
+        y0 - t / 2.0,
+        z0 - t / 2.0,
+        x1,
+        y0 + t / 2.0,
+        z0 + t / 2.0,
+        r,
+        g,
+        b,
+    );
+    push_box(
+        verts,
+        x0,
+        y0 - t / 2.0,
+        z1 - t / 2.0,
+        x1,
+        y0 + t / 2.0,
+        z1 + t / 2.0,
+        r,
+        g,
+        b,
+    );
+    push_box(
+        verts,
+        x0 - t / 2.0,
+        y0 - t / 2.0,
+        z0,
+        x0 + t / 2.0,
+        y0 + t / 2.0,
+        z1,
+        r,
+        g,
+        b,
+    );
+    push_box(
+        verts,
+        x1 - t / 2.0,
+        y0 - t / 2.0,
+        z0,
+        x1 + t / 2.0,
+        y0 + t / 2.0,
+        z1,
+        r,
+        g,
+        b,
+    );
+    // Top 4 edges (y=y1)
+    push_box(
+        verts,
+        x0,
+        y1 - t / 2.0,
+        z0 - t / 2.0,
+        x1,
+        y1 + t / 2.0,
+        z0 + t / 2.0,
+        r,
+        g,
+        b,
+    );
+    push_box(
+        verts,
+        x0,
+        y1 - t / 2.0,
+        z1 - t / 2.0,
+        x1,
+        y1 + t / 2.0,
+        z1 + t / 2.0,
+        r,
+        g,
+        b,
+    );
+    push_box(
+        verts,
+        x0 - t / 2.0,
+        y1 - t / 2.0,
+        z0,
+        x0 + t / 2.0,
+        y1 + t / 2.0,
+        z1,
+        r,
+        g,
+        b,
+    );
+    push_box(
+        verts,
+        x1 - t / 2.0,
+        y1 - t / 2.0,
+        z0,
+        x1 + t / 2.0,
+        y1 + t / 2.0,
+        z1,
+        r,
+        g,
+        b,
+    );
+    // 4 vertical corner pillars
+    push_box(
+        verts,
+        x0 - t / 2.0,
+        y0,
+        z0 - t / 2.0,
+        x0 + t / 2.0,
+        y1,
+        z0 + t / 2.0,
+        r,
+        g,
+        b,
+    );
+    push_box(
+        verts,
+        x1 - t / 2.0,
+        y0,
+        z0 - t / 2.0,
+        x1 + t / 2.0,
+        y1,
+        z0 + t / 2.0,
+        r,
+        g,
+        b,
+    );
+    push_box(
+        verts,
+        x0 - t / 2.0,
+        y0,
+        z1 - t / 2.0,
+        x0 + t / 2.0,
+        y1,
+        z1 + t / 2.0,
+        r,
+        g,
+        b,
+    );
+    push_box(
+        verts,
+        x1 - t / 2.0,
+        y0,
+        z1 - t / 2.0,
+        x1 + t / 2.0,
+        y1,
+        z1 + t / 2.0,
+        r,
+        g,
+        b,
+    );
+}
+
+// ── Box builder ───────────────────────────────────────────────────────────────
+
+/// Push a solid 3D box (5 faces — no floor) with correct CCW winding for each face.
+/// Face normals point outward so back-face culling works correctly.
 #[allow(clippy::too_many_arguments)]
 fn push_box(
     verts: &mut Vec<Vertex>,
@@ -518,18 +849,19 @@ fn push_box(
     g: f32,
     b: f32,
 ) {
-    let d = 0.75_f32; // darkening factor for side faces
+    let d = 0.78_f32; // side face darkening
+    let d2 = 0.60_f32; // left/right even darker
 
-    // Top face (y = y1, facing +Y) — CCW from above
+    // Top face (+Y normal): CCW from above — (x0,z0)→(x0,z1)→(x1,z1)→(x1,z0)
     push_face(
         verts,
         Vertex::new(x0, y1, z0, r, g, b),
-        Vertex::new(x1, y1, z0, r, g, b),
-        Vertex::new(x1, y1, z1, r, g, b),
         Vertex::new(x0, y1, z1, r, g, b),
+        Vertex::new(x1, y1, z1, r, g, b),
+        Vertex::new(x1, y1, z0, r, g, b),
     );
 
-    // Front face (z = z0, facing -Z) — CCW from -Z
+    // Front face (-Z normal): CCW from -Z — (x0,y0)→(x0,y1)→(x1,y1)→(x1,y0)
     push_face(
         verts,
         Vertex::new(x0, y0, z0, r * d, g * d, b * d),
@@ -538,7 +870,7 @@ fn push_box(
         Vertex::new(x1, y0, z0, r * d, g * d, b * d),
     );
 
-    // Back face (z = z1, facing +Z) — CCW from +Z
+    // Back face (+Z normal): CCW from +Z — (x1,y0)→(x1,y1)→(x0,y1)→(x0,y0)
     push_face(
         verts,
         Vertex::new(x1, y0, z1, r * d, g * d, b * d),
@@ -547,9 +879,7 @@ fn push_box(
         Vertex::new(x0, y0, z1, r * d, g * d, b * d),
     );
 
-    let d2 = 0.6_f32; // even darker for left/right
-
-    // Left face (x = x0, facing -X) — CCW from -X
+    // Left face (-X normal): CCW from -X — (x0,y0,z1)→(x0,y1,z1)→(x0,y1,z0)→(x0,y0,z0)
     push_face(
         verts,
         Vertex::new(x0, y0, z1, r * d2, g * d2, b * d2),
@@ -558,7 +888,7 @@ fn push_box(
         Vertex::new(x0, y0, z0, r * d2, g * d2, b * d2),
     );
 
-    // Right face (x = x1, facing +X) — CCW from +X
+    // Right face (+X normal): CCW from +X — (x1,y0,z0)→(x1,y1,z0)→(x1,y1,z1)→(x1,y0,z1)
     push_face(
         verts,
         Vertex::new(x1, y0, z0, r * d2, g * d2, b * d2),
@@ -568,14 +898,20 @@ fn push_box(
     );
 }
 
-/// Push one quad face as 2 CCW triangles. Vertices must be in CCW order when
-/// viewed from the outside.
+// ── Primitive helpers ─────────────────────────────────────────────────────────
+
+/// Push one quad as two CCW triangles. Winding: v0→v1→v2 and v0→v2→v3.
 fn push_face(verts: &mut Vec<Vertex>, v0: Vertex, v1: Vertex, v2: Vertex, v3: Vertex) {
     verts.extend_from_slice(&[v0, v1, v2, v0, v2, v3]);
 }
 
-/// Push a flat quad defined by an origin, width-vector, and height-vector.
-/// Faces toward the camera (billboard).
+/// Convenience constructor for a colored vertex.
+fn vert(p: Vec3, r: f32, g: f32, b: f32) -> Vertex {
+    Vertex::new(p.x, p.y, p.z, r, g, b)
+}
+
+/// Push a parallelogram quad defined by origin + two edge vectors.
+/// Normal = width × height (faces toward the camera when width=right, height=up).
 fn push_flat_quad(
     verts: &mut Vec<Vertex>,
     origin: Vec3,

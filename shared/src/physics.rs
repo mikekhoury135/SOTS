@@ -31,6 +31,15 @@ pub const EYE_HEIGHT: f32 = 1.5;
 /// Player render height (full body).
 pub const PLAYER_HEIGHT: f32 = 2.0;
 
+/// Ceiling height — visual ceiling plane, also used for collision.
+pub const CEILING_HEIGHT: f32 = 4.0;
+
+/// Gravitational acceleration (world-units / second²).
+pub const GRAVITY: f32 = 22.0;
+
+/// Vertical velocity applied on jump (world-units / second).
+pub const JUMP_VEL: f32 = 8.5;
+
 // ── Wall geometry ────────────────────────────────────────────────────────────
 
 /// An axis-aligned rectangular wall defined by its min/max corners on the XZ plane.
@@ -78,12 +87,14 @@ pub const WALLS: &[Wall] = &[
 
 // ── Movement ─────────────────────────────────────────────────────────────────
 
-/// Apply one tick of input to a player position and yaw.
+/// Apply one tick of input to a player position, yaw, and vertical velocity.
 ///
 /// This is the **single source of truth** for movement — both the server's
 /// `tick()` and the client's prediction call this exact function.
-pub fn apply_input(pos: &mut Vec3, yaw: &mut f32, frame: &InputFrame) {
-    // Yaw rotation from mouse delta
+pub fn apply_input(pos: &mut Vec3, yaw: &mut f32, vy: &mut f32, frame: &InputFrame) {
+    let dt = 1.0 / TICK_RATE as f32;
+
+    // ── Yaw rotation ──────────────────────────────────────────────────────────
     *yaw += frame.yaw_delta as f32 * YAW_SENSITIVITY;
 
     let (sin_y, cos_y) = yaw.sin_cos();
@@ -93,7 +104,7 @@ pub fn apply_input(pos: &mut Vec3, yaw: &mut f32, frame: &InputFrame) {
 
     let m = frame.movement;
 
-    // Build desired displacement
+    // ── Horizontal movement ───────────────────────────────────────────────────
     let mut delta = Vec3::ZERO;
     if m & movement::FORWARD != 0 {
         delta += forward;
@@ -127,6 +138,33 @@ pub fn apply_input(pos: &mut Vec3, yaw: &mut f32, frame: &InputFrame) {
     // Clamp to map boundary
     pos.x = pos.x.clamp(-MAP_HALF, MAP_HALF);
     pos.z = pos.z.clamp(-MAP_HALF, MAP_HALF);
+
+    // ── Vertical movement (gravity + jump) ────────────────────────────────────
+    let grounded = pos.y <= 0.0;
+
+    if m & movement::JUMP != 0 && grounded {
+        *vy = JUMP_VEL;
+    }
+
+    // Apply gravity every tick
+    *vy -= GRAVITY * dt;
+
+    pos.y += *vy * dt;
+
+    // Land on the floor
+    if pos.y <= 0.0 {
+        pos.y = 0.0;
+        *vy = 0.0_f32.max(*vy); // absorb downward velocity, keep upward if any
+    }
+
+    // Bump head on ceiling
+    let head_top = pos.y + PLAYER_HEIGHT;
+    if head_top >= CEILING_HEIGHT {
+        pos.y = CEILING_HEIGHT - PLAYER_HEIGHT;
+        if *vy > 0.0 {
+            *vy = 0.0;
+        }
+    }
 }
 
 /// Returns true if a player-sized body at (x, z) overlaps any wall.
@@ -176,7 +214,7 @@ mod tests {
 
         // Apply many frames — player should be stopped by the east pillar (x_min=15)
         for _ in 0..200 {
-            apply_input(&mut pos, &mut yaw, &frame);
+            apply_input(&mut pos, &mut yaw, &mut 0.0_f32, &frame);
         }
 
         // Stopped at x = 15.0 - PLAYER_HALF (0.5) = 14.5
@@ -201,7 +239,7 @@ mod tests {
             pitch_delta: 0,
             flags: crate::types::PlayerFlags::new(),
         };
-        apply_input(&mut pos, &mut yaw, &frame_fwd);
+        apply_input(&mut pos, &mut yaw, &mut 0.0_f32, &frame_fwd);
         let fwd_dist = (pos.x * pos.x + pos.z * pos.z).sqrt();
 
         // Reset and move diagonally
@@ -215,7 +253,7 @@ mod tests {
             pitch_delta: 0,
             flags: crate::types::PlayerFlags::new(),
         };
-        apply_input(&mut pos, &mut yaw, &frame_diag);
+        apply_input(&mut pos, &mut yaw, &mut 0.0_f32, &frame_diag);
         let diag_dist = (pos.x * pos.x + pos.z * pos.z).sqrt();
 
         // Diagonal distance should equal forward-only distance (normalized)
