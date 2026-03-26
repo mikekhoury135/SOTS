@@ -178,13 +178,14 @@ mod tests {
 
     #[test]
     fn hitscan_blocked_by_wall() {
-        let origin = Vec3::new(0.0, 0.0, 14.0); // just north of south barrier
-        let dir = Vec3::new(0.0, 0.0, 1.0); // shoot south
-        // Target is beyond the south barrier (z: 12..16)
-        let targets = vec![(Vec3::new(0.0, 0.0, 20.0), 0)];
+        // Shoot east from origin toward the east pillar (x: 15..21, z: -6..6).
+        // The target is beyond the pillar — wall should block it.
+        let origin = Vec3::new(0.0, 0.0, 0.0);
+        let dir = Vec3::new(1.0, 0.0, 0.0); // shoot east (+X)
+        let targets = vec![(Vec3::new(25.0, 0.0, 0.0), 0)];
 
         let (hit, _result) = hitscan(origin, dir, &targets);
-        // Wall blocks the ray before reaching the target
+        // East pillar (x: 15..21) blocks the ray before reaching the target
         assert!(hit.is_none());
     }
 

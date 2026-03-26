@@ -23,6 +23,11 @@ impl InputSnapshot {
         self.inner.release(key);
         self.movement = self.inner.movement;
     }
+
+    pub fn set_shoot(&mut self, active: bool) {
+        self.inner.set_shoot(active);
+        self.movement = self.inner.movement;
+    }
 }
 
 // ── Debug settings (toggled by F3/F4) ───────────────────────────────────────

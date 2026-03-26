@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, WindowEvent},
+    event::{ElementState, MouseButton, WindowEvent},
     event_loop::ActiveEventLoop,
     keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowAttributes, WindowId},
@@ -98,6 +98,13 @@ impl ApplicationHandler for App {
                         ElementState::Pressed => input.press(code),
                         ElementState::Released => input.release(code),
                     }
+                }
+            }
+
+            WindowEvent::MouseInput { state: btn_state, button, .. } => {
+                if button == MouseButton::Left {
+                    let mut input = self.shared.input.lock();
+                    input.set_shoot(btn_state == ElementState::Pressed);
                 }
             }
 
