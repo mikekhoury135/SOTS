@@ -225,7 +225,9 @@ impl Renderer {
             game.predicted_pos.z,
         );
         let (sin_y, cos_y) = game.predicted_yaw.sin_cos();
-        let forward = Vec3::new(sin_y, 0.0, -cos_y);
+        let (sin_p, cos_p) = game.predicted_pitch.sin_cos();
+        // Full 3D forward includes pitch; right stays horizontal to prevent roll.
+        let forward = Vec3::new(sin_y * cos_p, sin_p, -cos_y * cos_p);
         let right = Vec3::new(cos_y, 0.0, sin_y);
         let target = eye + forward;
 

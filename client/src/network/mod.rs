@@ -57,6 +57,7 @@ async fn connect_and_run(server_addr: String, shared: Arc<SharedState>) -> anyho
     // ── Prediction state ─────────────────────────────────────────────────────
     let mut predicted_pos = Vec3::ZERO;
     let mut predicted_yaw: f32 = 0.0;
+    let mut predicted_pitch: f32 = 0.0;
     let mut predicted_vy: f32 = 0.0;
     let mut input_sequence: u32 = 1;
     let mut pending_inputs: VecDeque<InputFrame> = VecDeque::with_capacity(MAX_PENDING_INPUTS);
@@ -161,10 +162,15 @@ async fn connect_and_run(server_addr: String, shared: Arc<SharedState>) -> anyho
 
             // Send input on each tick
             _ = interval.tick() => {
-                // Read keyboard movement + drain accumulated mouse yaw + consume fire request
-                let (base_movement, raw_yaw_delta, fire) = {
+                // Read keyboard movement + drain accumulated mouse deltas + consume fire request
+                let (base_movement, raw_yaw_delta, raw_pitch_delta, fire) = {
                     let mut input = shared.input.lock();
-                    (input.movement, input.take_yaw_delta(), input.take_fire_request())
+                    (
+                        input.movement,
+                        input.take_yaw_delta(),
+                        input.take_pitch_delta(),
+                        input.take_fire_request(),
+                    )
                 };
 
                 // fire_requested ensures even a sub-tick tap always produces one SHOOT frame
@@ -174,15 +180,21 @@ async fn connect_and_run(server_addr: String, shared: Arc<SharedState>) -> anyho
                     base_movement
                 };
 
-                // Clamp raw_yaw_delta to i16 range for the wire format
+                // Clamp deltas to i16 range for the wire format
                 let yaw_delta = raw_yaw_delta.clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+                let pitch_delta = raw_pitch_delta.clamp(i16::MIN as f32, i16::MAX as f32) as i16;
+
+                // Apply pitch locally (not reconciled from server — view-only).
+                // Mouse down (positive delta) = look down = decrease pitch.
+                predicted_pitch -= pitch_delta as f32 * physics::PITCH_SENSITIVITY;
+                predicted_pitch = predicted_pitch.clamp(-physics::PITCH_MAX, physics::PITCH_MAX);
 
                 let frame = InputFrame {
                     tick,
                     sequence: input_sequence,
                     movement,
                     yaw_delta,
-                    pitch_delta: 0,
+                    pitch_delta,
                     flags: PlayerFlags::new(),
                 };
 
@@ -195,11 +207,12 @@ async fn connect_and_run(server_addr: String, shared: Arc<SharedState>) -> anyho
                 }
                 pending_inputs.push_back(frame);
 
-                // ── Update predicted position + yaw in game view ──
+                // ── Update predicted position + yaw + pitch in game view ──
                 {
                     let mut game = shared.game.lock();
                     game.predicted_pos = predicted_pos;
                     game.predicted_yaw = predicted_yaw;
+                    game.predicted_pitch = predicted_pitch;
                     game.client_tick = tick;
                     game.pending_inputs = pending_inputs.len();
                     if movement & shared::types::movement::SHOOT != 0 {
