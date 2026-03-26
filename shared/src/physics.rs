@@ -19,6 +19,12 @@ pub const MAP_HALF: f32 = 95.0;
 /// Mouse-look yaw sensitivity (radians per raw delta unit).
 pub const YAW_SENSITIVITY: f32 = 0.003;
 
+/// Mouse-look pitch sensitivity (radians per raw delta unit).
+pub const PITCH_SENSITIVITY: f32 = 0.003;
+
+/// Maximum pitch angle (radians). Clamps look direction to ±85°.
+pub const PITCH_MAX: f32 = std::f32::consts::FRAC_PI_2 - 0.087; // ~85°
+
 /// Player collision half-size (axis-aligned square).
 pub const PLAYER_HALF: f32 = 0.5;
 

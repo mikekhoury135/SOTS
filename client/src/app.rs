@@ -156,6 +156,7 @@ impl ApplicationHandler for App {
         if let DeviceEvent::MouseMotion { delta } = event {
             let mut input = self.shared.input.lock();
             input.accumulate_yaw(delta.0);
+            input.accumulate_pitch(delta.1); // positive delta.1 = mouse down = look down
         }
     }
 

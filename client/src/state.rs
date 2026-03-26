@@ -15,6 +15,8 @@ pub struct InputSnapshot {
     pub movement: u8,
     /// Accumulated mouse X delta since last tick (consumed by the network loop).
     pub yaw_delta_accum: f32,
+    /// Accumulated mouse Y delta since last tick (consumed by the network loop).
+    pub pitch_delta_accum: f32,
     /// Set on left-click press; stays true until the next tick consumes it.
     /// Guarantees the SHOOT bit is sent for at least one full tick even on fast taps.
     pub fire_requested: bool,
@@ -56,6 +58,18 @@ impl InputSnapshot {
     pub fn take_yaw_delta(&mut self) -> f32 {
         let d = self.yaw_delta_accum;
         self.yaw_delta_accum = 0.0;
+        d
+    }
+
+    /// Accumulate raw mouse Y movement. Positive = mouse moved down = look down.
+    pub fn accumulate_pitch(&mut self, dy: f64) {
+        self.pitch_delta_accum += dy as f32;
+    }
+
+    /// Drain the accumulated pitch delta (called once per network tick).
+    pub fn take_pitch_delta(&mut self) -> f32 {
+        let d = self.pitch_delta_accum;
+        self.pitch_delta_accum = 0.0;
         d
     }
 }
@@ -100,6 +114,8 @@ pub struct GameView {
     pub predicted_pos: Vec3,
     /// Client-predicted yaw for the camera direction.
     pub predicted_yaw: f32,
+    /// Client-predicted pitch (vertical look angle, clamped to ±85°).
+    pub predicted_pitch: f32,
     /// Server-confirmed position for the local player (for debug ghost).
     pub server_pos: Vec3,
     /// Estimated round-trip time in milliseconds.
@@ -121,6 +137,7 @@ impl GameView {
             players: Vec::new(),
             predicted_pos: Vec3::ZERO,
             predicted_yaw: 0.0,
+            predicted_pitch: 0.0,
             server_pos: Vec3::ZERO,
             rtt_ms: 0.0,
             client_tick: 0,
@@ -147,6 +164,7 @@ impl SharedState {
                 inner: InputState::new(),
                 movement: 0,
                 yaw_delta_accum: 0.0,
+                pitch_delta_accum: 0.0,
                 fire_requested: false,
             }),
             game: Mutex::new(GameView::new()),
