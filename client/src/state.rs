@@ -11,6 +11,8 @@ use crate::input::InputState;
 pub struct InputSnapshot {
     inner: InputState,
     pub movement: u8,
+    /// Accumulated mouse X delta since last tick (consumed by the network loop).
+    pub yaw_delta_accum: f32,
 }
 
 impl InputSnapshot {
@@ -27,6 +29,18 @@ impl InputSnapshot {
     pub fn set_shoot(&mut self, active: bool) {
         self.inner.set_shoot(active);
         self.movement = self.inner.movement;
+    }
+
+    /// Accumulate raw mouse X movement (called from DeviceEvent::MouseMotion).
+    pub fn accumulate_yaw(&mut self, dx: f64) {
+        self.yaw_delta_accum += dx as f32;
+    }
+
+    /// Drain the accumulated yaw delta (called once per network tick).
+    pub fn take_yaw_delta(&mut self) -> f32 {
+        let d = self.yaw_delta_accum;
+        self.yaw_delta_accum = 0.0;
+        d
     }
 }
 
@@ -68,6 +82,8 @@ pub struct GameView {
     pub players: Vec<PlayerState>,
     /// Client-predicted position for the local player (may differ from server).
     pub predicted_pos: Vec3,
+    /// Client-predicted yaw for the camera direction.
+    pub predicted_yaw: f32,
     /// Server-confirmed position for the local player (for debug ghost).
     pub server_pos: Vec3,
     /// Estimated round-trip time in milliseconds.
@@ -86,6 +102,7 @@ impl GameView {
             player_id: None,
             players: Vec::new(),
             predicted_pos: Vec3::ZERO,
+            predicted_yaw: 0.0,
             server_pos: Vec3::ZERO,
             rtt_ms: 0.0,
             client_tick: 0,
@@ -110,6 +127,7 @@ impl SharedState {
             input: Mutex::new(InputSnapshot {
                 inner: InputState::new(),
                 movement: 0,
+                yaw_delta_accum: 0.0,
             }),
             game: Mutex::new(GameView::new()),
             debug: Mutex::new(DebugSettings::new()),

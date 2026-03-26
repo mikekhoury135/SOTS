@@ -22,6 +22,15 @@ pub const YAW_SENSITIVITY: f32 = 0.003;
 /// Player collision half-size (axis-aligned square).
 pub const PLAYER_HALF: f32 = 0.5;
 
+/// Wall height in world units (floor to ceiling).
+pub const WALL_HEIGHT: f32 = 3.0;
+
+/// Camera / eye height above the ground plane.
+pub const EYE_HEIGHT: f32 = 1.5;
+
+/// Player render height (full body).
+pub const PLAYER_HEIGHT: f32 = 2.0;
+
 // ── Wall geometry ────────────────────────────────────────────────────────────
 
 /// An axis-aligned rectangular wall defined by its min/max corners on the XZ plane.
