@@ -42,7 +42,7 @@ const NEAR: f32 = 0.05;
 const FAR: f32 = 250.0;
 
 /// How long to show the shot flash indicator.
-const SHOT_FLASH_DURATION: Duration = Duration::from_millis(250);
+const SHOT_FLASH_DURATION: Duration = Duration::from_millis(500);
 
 // Wire thickness for debug hitbox outlines.
 const WIRE_T: f32 = 0.04;
@@ -419,52 +419,53 @@ fn build_players(verts: &mut Vec<Vertex>, game: &GameView) {
         };
 
         let x = base.x;
+        let y = base.y; // base Y from server — non-zero when jumping
         let z = base.z;
 
-        // ── Legs (y 0.0 → 0.85) ───────────────────────────────────────────
+        // ── Legs (y+0.0 → y+0.85) ─────────────────────────────────────────
         let leg_half = 0.28_f32;
         let leg_top = 0.85_f32;
         push_box(
             verts,
             x - leg_half,
-            0.0,
+            y,
             z - leg_half,
             x + leg_half,
-            leg_top,
+            y + leg_top,
             z + leg_half,
             body_r * 0.7,
             body_g * 0.7,
             body_b * 0.7,
         );
 
-        // ── Torso (y 0.85 → 1.65) ─────────────────────────────────────────
+        // ── Torso (y+0.85 → y+1.65) ───────────────────────────────────────
         let torso_half = 0.38_f32;
         let torso_bot = leg_top;
         let torso_top = 1.65_f32;
         push_box(
             verts,
             x - torso_half,
-            torso_bot,
+            y + torso_bot,
             z - torso_half,
             x + torso_half,
-            torso_top,
+            y + torso_top,
             z + torso_half,
             body_r,
             body_g,
             body_b,
         );
 
-        // ── Head (y 1.65 → 2.05) ──────────────────────────────────────────
+        // ── Head (y+1.65 → y+2.05) ────────────────────────────────────────
         let head_half = 0.25_f32;
         let head_bot = torso_top;
         let head_top = 2.05_f32;
         push_box(
             verts,
             x - head_half,
-            head_bot,
+            y + head_bot,
             z - head_half,
             x + head_half,
-            head_top,
+            y + head_top,
             z + head_half,
             body_r * 0.9 + 0.1,
             body_g * 0.85 + 0.05,
@@ -472,10 +473,9 @@ fn build_players(verts: &mut Vec<Vertex>, game: &GameView) {
         );
 
         // ── Face direction indicator (dark band on front of head) ─────────
-        // Place a thin dark quad on the face side of the head
         let right_dir = Vec3::new(cos_y, 0.0, sin_y);
         let face_center =
-            Vec3::new(x, (head_bot + head_top) * 0.5, z) + face_dir * (head_half + 0.005);
+            Vec3::new(x, y + (head_bot + head_top) * 0.5, z) + face_dir * (head_half + 0.005);
         push_flat_quad(
             verts,
             face_center - right_dir * head_half * 0.8 - Vec3::Y * (head_half * 0.8),
@@ -499,8 +499,11 @@ fn build_crosshair(
 ) {
     let center = eye + forward * 2.0;
     let up = Vec3::Y;
-    let arm = 0.025_f32;
-    let thick = 0.004_f32;
+    let (arm, thick) = if just_fired {
+        (0.05_f32, 0.008_f32) // bigger crosshair on fire
+    } else {
+        (0.025_f32, 0.004_f32)
+    };
     let (r, g, b) = if just_fired {
         (1.0_f32, 1.0, 0.0) // yellow flash when shot
     } else {
@@ -599,24 +602,39 @@ fn build_debug_overlay(
 
     // ── Shot ray indicator ────────────────────────────────────────────────
     if just_fired {
+        // Start slightly in front of eye to avoid near-plane clipping.
+        let ray_start = eye + forward * 0.15;
         let ray_end = eye + forward * shared::combat::HITSCAN_RANGE;
-        // Draw as a thin stick along the ray using a series of cross-section boxes
-        // Orient perpendicular to forward: use right and up
-        let perp_r = right * 0.03;
-        let perp_u = up * 0.03;
+        let perp_r = right * 0.06;
+        let perp_u = up * 0.06;
+        // Horizontal slab
         push_face(
             verts,
-            vert(eye + perp_r, 1.0, 1.0, 0.0),
+            vert(ray_start + perp_r, 1.0, 1.0, 0.0),
             vert(ray_end + perp_r, 1.0, 1.0, 0.0),
             vert(ray_end - perp_r, 1.0, 1.0, 0.0),
-            vert(eye - perp_r, 1.0, 1.0, 0.0),
+            vert(ray_start - perp_r, 1.0, 1.0, 0.0),
         );
+        // Vertical slab (cross-shape makes it visible from any angle)
         push_face(
             verts,
-            vert(eye + perp_u, 1.0, 1.0, 0.0),
-            vert(eye - perp_u, 1.0, 1.0, 0.0),
+            vert(ray_start + perp_u, 1.0, 1.0, 0.0),
+            vert(ray_start - perp_u, 1.0, 1.0, 0.0),
             vert(ray_end - perp_u, 1.0, 1.0, 0.0),
             vert(ray_end + perp_u, 1.0, 1.0, 0.0),
+        );
+        // Bright dot at the end of the ray to mark where the bullet terminated
+        push_box(
+            verts,
+            ray_end.x - 0.12,
+            ray_end.y - 0.12,
+            ray_end.z - 0.12,
+            ray_end.x + 0.12,
+            ray_end.y + 0.12,
+            ray_end.z + 0.12,
+            1.0,
+            0.3,
+            0.0,
         );
     }
 

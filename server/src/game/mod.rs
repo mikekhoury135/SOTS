@@ -224,37 +224,34 @@ impl GameState {
             let (sin_y, cos_y) = yaw.sin_cos();
             let direction = Vec3::new(sin_y, 0.0, -cos_y); // matches physics::apply_input forward
 
-            // Build targets excluding the shooter
-            let targets: Vec<(Vec3, usize)> = alive_players
+            // Build target list excluding the shooter.
+            // Uses 0-based sequential indices so hit_idx maps directly into filtered_targets.
+            let filtered_targets: Vec<(Vec3, Entity)> = alive_players
+                .iter()
+                .filter(|(_, e)| e != shooter_entity)
+                .map(|(pos, e)| (*pos, *e))
+                .collect();
+
+            let hitscan_targets: Vec<(Vec3, usize)> = filtered_targets
                 .iter()
                 .enumerate()
-                .filter(|(_, (_, e))| e != shooter_entity)
                 .map(|(i, (pos, _))| (*pos, i))
                 .collect();
 
-            let (hit_idx, _result) = combat::hitscan(*origin, direction, &targets);
+            let (hit_idx, _result) = combat::hitscan(*origin, direction, &hitscan_targets);
 
             if let Some(target_idx) = hit_idx {
-                // Map target_idx back to entity
-                let hit_entity = alive_players
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, (_, e))| e != shooter_entity)
-                    .nth(target_idx)
-                    .map(|(_, (_, e))| *e);
+                let hit_entity = filtered_targets[target_idx].1;
 
-                #[allow(clippy::collapsible_if)]
-                if let Some(entity) = hit_entity {
-                    if let Ok((health, timer)) = self
-                        .world
-                        .query_one_mut::<(&mut Health, &mut RespawnTimer)>(entity)
-                    {
-                        health.0 = health.0.saturating_sub(HITSCAN_DAMAGE);
-                        if health.0 == 0 {
-                            timer.0 = RESPAWN_TICKS;
-                            if let Ok(tag) = self.world.query_one_mut::<&PlayerTag>(entity) {
-                                info!("Player {:?} was killed", tag.0);
-                            }
+                if let Ok((health, timer)) = self
+                    .world
+                    .query_one_mut::<(&mut Health, &mut RespawnTimer)>(hit_entity)
+                {
+                    health.0 = health.0.saturating_sub(HITSCAN_DAMAGE);
+                    if health.0 == 0 {
+                        timer.0 = RESPAWN_TICKS;
+                        if let Ok(tag) = self.world.query_one_mut::<&PlayerTag>(hit_entity) {
+                            info!("Player {:?} was killed", tag.0);
                         }
                     }
                 }
